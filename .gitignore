@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+client/dist/
+client/build/
+.npm
+*.log
+
+# Data (large files — do not commit)
+server/data/raw/
+server/data/processed/
+server/data/synthetic_trades/
+
+# ML models (large binary files)
+server/ml/gnn/checkpoints/
+server/ml/forecasting/checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Evaluation outputs
+evaluation/figures/*.png
+evaluation/figures/*.pdf
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Jupyter
+.ipynb_checkpoints/
+
+# W&B
+wandb/
