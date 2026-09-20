@@ -33,6 +33,8 @@ client/build/
 server/data/raw/
 server/data/processed/
 server/data/synthetic_trades/
+server/data/15_minute_residential_data/
+server/data/iso
 
 # ML models (large binary files)
 server/ml/gnn/checkpoints/

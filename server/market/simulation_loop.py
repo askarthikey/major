@@ -25,6 +25,7 @@ import pandapower as pp
 from core.feeder_setup import create_ieee13_feeder, get_topology_for_visualization
 from core.attach_profiles import (
     generate_synthetic_profiles,
+    load_real_profiles,
     attach_profiles_to_network,
     DEFAULT_HOUSEHOLD_BUS_MAP,
 )
@@ -69,7 +70,18 @@ class SimulationLoop:
 
         # Initialize components
         self.net = create_ieee13_feeder()
-        self.profiles = generate_synthetic_profiles(num_timesteps=total_timesteps)
+
+        # Prefer real Pecan Street profiles over synthetic
+        real_profiles = load_real_profiles()
+        if real_profiles is not None:
+            self.profiles = real_profiles
+            self.data_source = "pecan_street_real"
+            logger.info("Using real Pecan Street household profiles")
+        else:
+            self.profiles = generate_synthetic_profiles(num_timesteps=total_timesteps)
+            self.data_source = "synthetic"
+            logger.info("Using synthetic household profiles (real data not found)")
+
         self.auction = DoubleAuctionEngine()
         self.gnn_engine = GNNInferenceEngine(checkpoint_path=settings.gnn_model_path)
         self.gate = FeasibilityGate(gnn_engine=self.gnn_engine)

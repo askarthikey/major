@@ -26,23 +26,64 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 # Default household-to-bus mapping for the IEEE 13-bus feeder.
-# Buses with solar panels are marked — these are potential sellers.
+# Buses with solar panels are marked -- these are potential sellers.
 # This reflects a realistic suburban distribution: not every household has solar.
+#
+# source_dataid / source_location reference the Pecan Street raw data origin;
+# solar_capacity_kw is derived from actual observed peak solar generation.
 DEFAULT_HOUSEHOLD_BUS_MAP = {
-    "HH_01": {"bus_id": 2,  "has_solar": True,  "solar_capacity_kw": 5.0},
-    "HH_02": {"bus_id": 2,  "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_03": {"bus_id": 4,  "has_solar": True,  "solar_capacity_kw": 8.0},
-    "HH_04": {"bus_id": 5,  "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_05": {"bus_id": 6,  "has_solar": True,  "solar_capacity_kw": 4.0},
-    "HH_06": {"bus_id": 7,  "has_solar": True,  "solar_capacity_kw": 6.0},
-    "HH_07": {"bus_id": 7,  "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_08": {"bus_id": 8,  "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_09": {"bus_id": 9,  "has_solar": True,  "solar_capacity_kw": 7.0},
-    "HH_10": {"bus_id": 10, "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_11": {"bus_id": 11, "has_solar": True,  "solar_capacity_kw": 5.0},
-    "HH_12": {"bus_id": 12, "has_solar": False, "solar_capacity_kw": 0.0},
-    "HH_13": {"bus_id": 9,  "has_solar": False, "solar_capacity_kw": 0.0},
+    "HH_01": {"bus_id": 2,  "has_solar": True,  "solar_capacity_kw": 5.5,  "source_dataid": 661,  "source_location": "austin"},
+    "HH_02": {"bus_id": 2,  "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 5746, "source_location": "austin"},
+    "HH_03": {"bus_id": 4,  "has_solar": True,  "solar_capacity_kw": 4.5,  "source_dataid": 4767, "source_location": "austin"},
+    "HH_04": {"bus_id": 5,  "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 7951, "source_location": "austin"},
+    "HH_05": {"bus_id": 6,  "has_solar": True,  "solar_capacity_kw": 4.9,  "source_dataid": 7536, "source_location": "austin"},
+    "HH_06": {"bus_id": 7,  "has_solar": True,  "solar_capacity_kw": 18.2, "source_dataid": 950,  "source_location": "newyork"},
+    "HH_07": {"bus_id": 7,  "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 9922, "source_location": "austin"},
+    "HH_08": {"bus_id": 8,  "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 3687, "source_location": "california"},
+    "HH_09": {"bus_id": 9,  "has_solar": True,  "solar_capacity_kw": 5.0,  "source_dataid": 142,  "source_location": "newyork"},
+    "HH_10": {"bus_id": 10, "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 558,  "source_location": "newyork"},
+    "HH_11": {"bus_id": 11, "has_solar": True,  "solar_capacity_kw": 3.3,  "source_dataid": 5058, "source_location": "newyork"},
+    "HH_12": {"bus_id": 12, "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 9053, "source_location": "newyork"},
+    "HH_13": {"bus_id": 9,  "has_solar": False, "solar_capacity_kw": 0.0,  "source_dataid": 8565, "source_location": "austin"},
 }
+
+# Path to preprocessed real profiles (set by preprocess_pecan_street.py)
+PROCESSED_PROFILES_PATH = Path(__file__).parent.parent / "data" / "processed" / "profiles.parquet"
+
+
+def load_real_profiles(filepath: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """
+    Load preprocessed Pecan Street household profiles from parquet.
+
+    Returns None if the processed file doesn't exist yet (caller should
+    fall back to synthetic data).
+
+    Args:
+        filepath: Path to profiles parquet. Defaults to PROCESSED_PROFILES_PATH.
+
+    Returns:
+        DataFrame with columns: timestamp, household_id, load_kw, solar_kw
+        or None if file not found.
+    """
+    path = Path(filepath) if filepath else PROCESSED_PROFILES_PATH
+
+    if not path.exists():
+        logger.warning(
+            f"Processed profiles not found at {path}. "
+            f"Run 'python data/preprocess_pecan_street.py' to generate them."
+        )
+        return None
+
+    df = pd.read_parquet(path)
+
+    # Ensure timestamp is datetime (parquet preserves dtype, but be safe)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+
+    logger.info(
+        f"Loaded real profiles: {df['household_id'].nunique()} households, "
+        f"{len(df):,} records from {path.name}"
+    )
+    return df
 
 
 def generate_synthetic_profiles(

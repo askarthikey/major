@@ -197,6 +197,7 @@ def load_energy_data(
         "time": "timestamp",
         "datetime": "timestamp",
         "date_time": "timestamp",
+        "local_15min": "timestamp",
         # Household ID
         "house_id": "household_id",
         "home_id": "household_id",
