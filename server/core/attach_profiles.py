@@ -218,6 +218,7 @@ def attach_profiles_to_network(
     profiles: pd.DataFrame,
     timestep_idx: int,
     household_bus_map: Optional[Dict] = None,
+    load_scale_factor: float = 50.0,
 ) -> Dict[str, Dict]:
     """
     Attach load/solar profiles for a specific timestep to the pandapower network.
@@ -230,9 +231,12 @@ def attach_profiles_to_network(
         profiles: DataFrame with household load/solar time series.
         timestep_idx: Index of the timestep to apply.
         household_bus_map: Optional custom mapping; defaults to DEFAULT_HOUSEHOLD_BUS_MAP.
+        load_scale_factor: Multiplier for load/solar values. Each "household" in the
+            simulation represents a cluster of this many real homes. Default 50
+            to produce realistic line utilization on the IEEE 13-bus feeder.
 
     Returns:
-        Dict mapping household_id → {bus_id, load_kw, solar_kw, net_kw, surplus_kw}
+        Dict mapping household_id -> {bus_id, load_kw, solar_kw, net_kw, surplus_kw}
     """
     if household_bus_map is None:
         household_bus_map = DEFAULT_HOUSEHOLD_BUS_MAP
@@ -249,7 +253,7 @@ def attach_profiles_to_network(
     step_data = profiles[profiles["timestamp"] == target_time]
 
     # Aggregate load/solar by bus
-    bus_loads = {}  # bus_id → net power in MW (load - solar)
+    bus_loads = {}  # bus_id -> net power in MW (load - solar)
     household_states = {}
 
     for hh_id, hh_config in household_bus_map.items():
@@ -257,11 +261,11 @@ def attach_profiles_to_network(
         hh_row = step_data[step_data["household_id"] == hh_id]
 
         if len(hh_row) == 0:
-            load_kw = 1.0  # Default fallback
+            load_kw = 1.0 * load_scale_factor  # Default fallback (scaled)
             solar_kw = 0.0
         else:
-            load_kw = float(hh_row.iloc[0]["load_kw"])
-            solar_kw = float(hh_row.iloc[0]["solar_kw"])
+            load_kw = float(hh_row.iloc[0]["load_kw"]) * load_scale_factor
+            solar_kw = float(hh_row.iloc[0]["solar_kw"]) * load_scale_factor
 
         net_kw = load_kw - solar_kw  # Positive = consuming, negative = generating surplus
         surplus_kw = max(0, solar_kw - load_kw)

@@ -16,6 +16,9 @@ This module:
    - Feasibility checking (when GNN is not yet trained)
 """
 
+import warnings
+warnings.filterwarnings("ignore", message="numba")
+
 import pandapower as pp
 import numpy as np
 import logging

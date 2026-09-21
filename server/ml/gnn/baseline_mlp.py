@@ -175,3 +175,13 @@ def train_mlp_baseline(
         "best_val_f1": best_val_f1,
         "test_metrics": test_metrics,
     }
+
+if __name__ == "__main__":
+    import sys
+    import json
+    data_path = sys.argv[1] if len(sys.argv) > 1 else "data/synthetic_trades/training_data.parquet"
+    print(f"Training MLP Baseline on {data_path}...")
+    results = train_mlp_baseline(data_path, num_epochs=50)
+    print("\n=== Final Test Evaluation ===")
+    print(json.dumps(results["test_metrics"], indent=2))
+    print(f"\nTraining complete! Best val F1: {results['best_val_f1']:.4f}")

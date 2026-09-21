@@ -16,7 +16,14 @@ physics, not a guess. Only the trade combinations are synthetic, which is
 standard practice in safety-critical ML research.
 """
 
+import warnings
+warnings.filterwarnings("ignore", message="numba")
+
 import pandapower as pp
+try:
+    pp.rundcpp  # Just to trigger any one-time init
+except AttributeError:
+    pass
 import numpy as np
 import pandas as pd
 import json
@@ -97,8 +104,10 @@ def sample_candidate_trade(
     max_amount = seller_state["surplus_kw"]
 
     if oversample_high_load:
-        # Bias toward larger amounts — multiply by 1.5-3x to push grid limits
-        multiplier = 1.5 + rng.random() * 1.5
+        # Bias toward larger amounts — multiply by 5-30x to push grid limits
+        # At load_scale_factor=50, surplus ~50-500 kW, so 30x -> 1500-15000 kW
+        # which reliably stresses lines rated at ~500-5000 kW at 4.16 kV
+        multiplier = 5.0 + rng.random() * 25.0
         trade_amount = max_amount * multiplier
     else:
         # Normal: random amount up to the seller's surplus
@@ -120,7 +129,7 @@ def sample_candidate_trade(
 def generate_training_data(
     num_samples: int = 20000,
     num_timesteps: int = 96,
-    oversample_ratio: float = 0.3,
+    oversample_ratio: float = 0.5,
     seed: int = 42,
     output_dir: Optional[str] = None,
     profiles: Optional[pd.DataFrame] = None,
@@ -169,28 +178,25 @@ def generate_training_data(
 
     # Pre-filter to timesteps where solar surplus exists (daytime hours)
     # This avoids wasting iterations on nighttime timesteps with zero surplus
+    # Uses vectorized pandas operations for speed (87K+ timesteps)
     logger.info("Pre-filtering timesteps with solar surplus...")
-    valid_timesteps = []
+
+    solar_hh_ids = [hh_id for hh_id, cfg in DEFAULT_HOUSEHOLD_BUS_MAP.items() if cfg["has_solar"]]
+    solar_profiles = profiles[profiles["household_id"].isin(solar_hh_ids)].copy()
+    solar_profiles["surplus_kw"] = solar_profiles["solar_kw"] - solar_profiles["load_kw"]
+
+    # Find timestamps where ANY solar household has surplus > 0.1 kW
+    surplus_by_time = solar_profiles.groupby("timestamp")["surplus_kw"].max()
+    valid_timestamps = surplus_by_time[surplus_by_time > 0.1].index
+
+    # Map back to integer indices for random sampling
     all_timestamps = sorted(profiles["timestamp"].unique())
-    for t_idx in range(min(num_timesteps, len(all_timestamps))):
-        target_time = all_timestamps[t_idx]
-        step_data = profiles[profiles["timestamp"] == target_time]
-        has_surplus = False
-        for hh_id, hh_config in DEFAULT_HOUSEHOLD_BUS_MAP.items():
-            if hh_config["has_solar"]:
-                hh_row = step_data[step_data["household_id"] == hh_id]
-                if len(hh_row) > 0:
-                    solar = float(hh_row.iloc[0]["solar_kw"])
-                    load = float(hh_row.iloc[0]["load_kw"])
-                    if solar - load > 0.1:
-                        has_surplus = True
-                        break
-        if has_surplus:
-            valid_timesteps.append(t_idx)
+    ts_to_idx = {ts: idx for idx, ts in enumerate(all_timestamps)}
+    valid_timesteps = [ts_to_idx[ts] for ts in valid_timestamps if ts in ts_to_idx]
 
     logger.info(
         f"Found {len(valid_timesteps)} timesteps with solar surplus "
-        f"out of {min(num_timesteps, len(all_timestamps))} total"
+        f"out of {len(all_timestamps)} total"
     )
 
     if not valid_timesteps:
