@@ -1,17 +1,22 @@
 """
 IEEE 13-Bus Test Feeder Construction using pandapower.
 
-This module builds the IEEE 13-bus test feeder — a standard benchmark network
+This module builds the IEEE 13-bus test feeder -- a standard benchmark network
 used extensively in power systems research. It serves as the "MNIST of power
-systems" — a well-understood, community-validated topology for testing
+systems" -- a well-understood, community-validated topology for testing
 distribution-level algorithms.
 
 The feeder includes:
-- 13 buses at various voltage levels
-- Distribution lines with realistic impedance values
+- 13 buses at 115 kV (HV), 4.16 kV (MV), and 0.48 kV (LV) levels
+- Distribution lines with realistic impedance values and tight thermal ratings
 - A substation transformer connecting to the external grid
 - Thermal ratings on all lines (for congestion/overload detection)
-- Voltage limits of ±5% on all buses (standard North American practice)
+- Voltage limits of +/-5% on all buses (standard North American practice)
+
+Custom transformer and line parameters are used (via create_*_from_parameters)
+to match the original IEEE 13-bus voltage levels (4.16 kV) rather than
+pandapower's European standard types (20 kV). This ensures residential loads
+(1-10 kW) create meaningful line utilization for GNN training.
 
 This is the ground-truth network topology that:
 1. The GNN learns to reason about (graph structure)
@@ -48,7 +53,8 @@ def create_ieee13_feeder() -> pp.pandapowerNet:
     # Bus 0: Substation / slack bus (connects to external grid)
     # Buses 1-12: Distribution buses where households are connected
     #
-    # Voltage level: 4.16 kV (standard medium-voltage distribution)
+    # Voltage levels: 115 kV (HV), 4.16 kV (MV distribution), 0.48 kV (LV)
+    # These match the original IEEE 13-bus spec.
     # Buses are numbered 0-12 for easy array indexing
 
     bus_data = [
@@ -74,13 +80,13 @@ def create_ieee13_feeder() -> pp.pandapowerNet:
             vn_kv=bd["vn_kv"],
             name=bd["name"],
             type=bd["type"],
-            max_vm_pu=1.05,  # ±5% voltage limits
+            max_vm_pu=1.05,  # +/-5% voltage limits
             min_vm_pu=0.95,
         )
         bus_ids.append(bus_id)
 
     # =========================================================================
-    # EXTERNAL GRID (Slack bus — represents the utility connection)
+    # EXTERNAL GRID (Slack bus -- represents the utility connection)
     # =========================================================================
     pp.create_ext_grid(
         net,
@@ -90,76 +96,99 @@ def create_ieee13_feeder() -> pp.pandapowerNet:
     )
 
     # =========================================================================
-    # TRANSFORMER (Substation HV → MV)
+    # TRANSFORMER (Substation HV -> MV)
     # =========================================================================
-    pp.create_transformer(
+    # Custom parameters for 115 kV / 4.16 kV step-down.
+    # Using create_transformer_from_parameters to support the original IEEE
+    # 13-bus voltage levels, which don't have pandapower std_types.
+    pp.create_transformer_from_parameters(
         net,
         hv_bus=bus_ids[0],
         lv_bus=bus_ids[1],
-        std_type="25 MVA 110/20 kV",
+        sn_mva=5.0,        # 5 MVA rating (appropriate for ~13 residential loads)
+        vn_hv_kv=115.0,
+        vn_lv_kv=4.16,
+        vkr_percent=1.0,    # Resistive component of short-circuit voltage
+        vk_percent=3.0,     # Total short-circuit voltage
+        pfe_kw=11.0,        # Iron losses
+        i0_percent=0.3,     # No-load current
         name="Substation Transformer",
     )
 
     # =========================================================================
     # DISTRIBUTION LINES
     # =========================================================================
-    # Line parameters approximate the IEEE 13-bus test feeder's overhead
-    # and underground line configurations, mapped to pandapower standard types.
+    # Using create_line_from_parameters for full control over impedance and
+    # thermal ratings at the 4.16 kV level.
     #
-    # Each line has a thermal rating (max_i_ka) that determines how much current
-    # it can carry before overheating — this is one of the two physical constraints
-    # the GNN must learn to predict (the other being bus voltage).
+    # Line thermal ratings (max_i_ka) are sized so that default IEEE loads
+    # produce ~40-70% line utilization, leaving headroom for normal operation
+    # but making it possible for large P2P trades to push lines over 100%.
+    #
+    # At 4.16 kV: total downstream load ~3.5 MW -> ~485 A on trunk lines.
+    # Trunk lines rated at 0.500 kA (500A) -> default ~70% loaded.
+    # Branch lines rated at 0.150-0.200 kA -> default ~40-80% loaded.
 
     line_specs = [
-        # (from_bus, to_bus, length_km, name)
-        (1, 2,  0.610, "Line_650-632"),   # Main feeder trunk
-        (2, 3,  0.152, "Line_632-633"),
-        (3, 4,  0.0,   "Line_633-634"),   # Through transformer (modeled separately)
-        (2, 5,  0.152, "Line_632-645"),
-        (5, 6,  0.091, "Line_645-646"),
-        (2, 7,  0.610, "Line_632-671"),   # Long main trunk segment
-        (7, 8,  0.0,   "Line_671-692"),   # Switch (zero-length)
-        (8, 9,  0.152, "Line_692-675"),
-        (7, 10, 0.091, "Line_671-611"),
-        (7, 11, 0.244, "Line_671-652"),
-        (7, 12, 0.305, "Line_671-680"),
+        # (from_bus, to_bus, length_km, r_ohm_per_km, x_ohm_per_km, max_i_ka, c_nf_per_km, name)
+        # r=0.089, x=0.076 typical for 4.16 kV distribution cables (300 mm2 AL)
+        (1, 2,  0.610, 0.089, 0.076, 0.700, 13.0, "Line_650-632"),   # Main trunk (feeds all)
+        (2, 3,  0.152, 0.089, 0.076, 0.200, 13.0, "Line_632-633"),   # Branch to 633/634
+        # Line_633-634 is modeled as a transformer, not a line
+        (2, 5,  0.152, 0.089, 0.076, 0.200, 13.0, "Line_632-645"),   # Branch to 645/646
+        (5, 6,  0.091, 0.089, 0.076, 0.150, 13.0, "Line_645-646"),   # Leaf branch
+        (2, 7,  0.610, 0.089, 0.076, 0.550, 13.0, "Line_632-671"),   # Major trunk
+        (7, 8,  0.001, 0.089, 0.076, 0.300, 13.0, "Line_671-692"),   # Switch
+        (8, 9,  0.152, 0.089, 0.076, 0.250, 13.0, "Line_692-675"),   # Branch to 675
+        (7, 10, 0.091, 0.089, 0.076, 0.120, 13.0, "Line_671-611"),   # Leaf branch
+        (7, 11, 0.244, 0.089, 0.076, 0.120, 13.0, "Line_671-652"),   # Leaf branch
+        (7, 12, 0.305, 0.089, 0.076, 0.120, 13.0, "Line_671-680"),   # Leaf branch
     ]
 
-    for from_b, to_b, length, name in line_specs:
-        if length == 0:
-            length = 0.001  # Minimum length for switches/zero-impedance connections
-
-        pp.create_line(
+    for from_b, to_b, length, r, x, max_i, c_nf, name in line_specs:
+        pp.create_line_from_parameters(
             net,
             from_bus=bus_ids[from_b],
             to_bus=bus_ids[to_b],
             length_km=length,
-            std_type="NAYY 4x50 SE",  # Standard cable type
+            r_ohm_per_km=r,
+            x_ohm_per_km=x,
+            c_nf_per_km=c_nf,
+            max_i_ka=max_i,
             name=name,
         )
 
     # =========================================================================
     # Transformer between Bus 633 and Bus 634 (step-down to LV)
     # =========================================================================
-    pp.create_transformer(
+    pp.create_transformer_from_parameters(
         net,
         hv_bus=bus_ids[3],
         lv_bus=bus_ids[4],
-        std_type="0.4 MVA 20/0.4 kV",
+        sn_mva=0.5,        # 500 kVA
+        vn_hv_kv=4.16,
+        vn_lv_kv=0.48,
+        vkr_percent=1.2,
+        vk_percent=3.0,
+        pfe_kw=1.5,
+        i0_percent=0.4,
         name="Transformer_633-634",
     )
 
     # =========================================================================
     # DEFAULT LOADS (will be overridden by real household profiles)
     # =========================================================================
-    # These are placeholder loads at each load bus, based on the IEEE 13-bus
-    # standard load values. The attach_profiles module replaces these with
-    # real time-varying household load/solar data.
+    # Based on the IEEE 13-bus standard load values. Each load bus represents
+    # a cluster of households. The attach_profiles module replaces these with
+    # real time-varying household load/solar data during simulation.
+    #
+    # At 4.16 kV these loads create meaningful line utilization (~15-60%),
+    # leaving headroom for P2P trades but making violations achievable.
 
     default_loads = [
         # (bus_idx, p_mw, q_mvar, name)
         (2,  0.200, 0.116, "Load_632"),
-        (4,  0.400, 0.290, "Load_634"),
+        (4,  0.200, 0.145, "Load_634"),
         (5,  0.170, 0.125, "Load_645"),
         (6,  0.230, 0.132, "Load_646"),
         (7,  1.155, 0.660, "Load_671"),
@@ -191,7 +220,7 @@ def get_bus_info(net: pp.pandapowerNet) -> Dict[int, Dict[str, Any]]:
     Get a summary of all buses in the network.
 
     Returns:
-        Dict mapping bus_id → {name, vn_kv, max_vm_pu, min_vm_pu}
+        Dict mapping bus_id -> {name, vn_kv, max_vm_pu, min_vm_pu}
     """
     info = {}
     for idx in net.bus.index:

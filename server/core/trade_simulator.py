@@ -28,6 +28,7 @@ from pathlib import Path
 from core.feeder_setup import create_ieee13_feeder
 from core.attach_profiles import (
     generate_synthetic_profiles,
+    load_real_profiles,
     attach_profiles_to_network,
     DEFAULT_HOUSEHOLD_BUS_MAP,
 )
@@ -151,9 +152,50 @@ def generate_training_data(
     # Create network
     net = create_ieee13_feeder()
 
-    # Load or generate profiles
+    # Load profiles: prefer real Pecan Street data, fall back to synthetic
     if profiles is None:
-        profiles = generate_synthetic_profiles(num_timesteps=num_timesteps, seed=seed)
+        profiles = load_real_profiles()
+        if profiles is not None:
+            logger.info("Using real Pecan Street profiles for training data generation")
+        else:
+            profiles = generate_synthetic_profiles(num_timesteps=num_timesteps, seed=seed)
+            logger.info("Using synthetic profiles (real data not found)")
+
+    # Detect actual number of unique timesteps in the profiles
+    actual_timesteps = profiles["timestamp"].nunique()
+    if actual_timesteps != num_timesteps:
+        logger.info(f"Adjusting timestep range: {num_timesteps} -> {actual_timesteps} (from profile data)")
+        num_timesteps = actual_timesteps
+
+    # Pre-filter to timesteps where solar surplus exists (daytime hours)
+    # This avoids wasting iterations on nighttime timesteps with zero surplus
+    logger.info("Pre-filtering timesteps with solar surplus...")
+    valid_timesteps = []
+    all_timestamps = sorted(profiles["timestamp"].unique())
+    for t_idx in range(min(num_timesteps, len(all_timestamps))):
+        target_time = all_timestamps[t_idx]
+        step_data = profiles[profiles["timestamp"] == target_time]
+        has_surplus = False
+        for hh_id, hh_config in DEFAULT_HOUSEHOLD_BUS_MAP.items():
+            if hh_config["has_solar"]:
+                hh_row = step_data[step_data["household_id"] == hh_id]
+                if len(hh_row) > 0:
+                    solar = float(hh_row.iloc[0]["solar_kw"])
+                    load = float(hh_row.iloc[0]["load_kw"])
+                    if solar - load > 0.1:
+                        has_surplus = True
+                        break
+        if has_surplus:
+            valid_timesteps.append(t_idx)
+
+    logger.info(
+        f"Found {len(valid_timesteps)} timesteps with solar surplus "
+        f"out of {min(num_timesteps, len(all_timestamps))} total"
+    )
+
+    if not valid_timesteps:
+        logger.error("No timesteps with solar surplus found! Cannot generate training data.")
+        return pd.DataFrame()
 
     logger.info(f"Generating {num_samples} training examples...")
     start_time = time.time()
@@ -161,27 +203,40 @@ def generate_training_data(
     records = []
     feasible_count = 0
     infeasible_count = 0
+    skipped_count = 0
+    max_retries = 5
 
     for i in range(num_samples):
         if (i + 1) % 1000 == 0:
             elapsed = time.time() - start_time
             logger.info(
                 f"Progress: {i+1}/{num_samples} "
-                f"({elapsed:.1f}s, feasible={feasible_count}, infeasible={infeasible_count})"
+                f"({elapsed:.1f}s, feasible={feasible_count}, infeasible={infeasible_count}, "
+                f"skipped={skipped_count})"
             )
 
-        # Pick random timestep
-        timestep_idx = rng.integers(0, num_timesteps)
+        # Try up to max_retries times to find a valid trade at a timestep with surplus
+        trade = None
+        household_states = None
+        timestep_idx = None
 
-        # Attach profiles for this timestep
-        household_states = attach_profiles_to_network(net, profiles, timestep_idx)
+        for retry in range(max_retries):
+            # Pick a random timestep from those known to have solar surplus
+            timestep_idx = rng.choice(valid_timesteps)
 
-        # Should we oversample high-load scenarios?
-        oversample = rng.random() < oversample_ratio
+            # Attach profiles for this timestep
+            household_states = attach_profiles_to_network(net, profiles, timestep_idx)
 
-        # Sample a candidate trade
-        trade = sample_candidate_trade(household_states, rng, oversample_high_load=oversample)
+            # Should we oversample high-load scenarios?
+            oversample = rng.random() < oversample_ratio
+
+            # Sample a candidate trade
+            trade = sample_candidate_trade(household_states, rng, oversample_high_load=oversample)
+            if trade is not None:
+                break
+
         if trade is None:
+            skipped_count += 1
             continue
 
         # Run power flow with trade applied
@@ -270,13 +325,25 @@ def generate_training_data(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    # Generate a small test batch first
-    print("Generating test batch (500 samples)...")
-    df = generate_training_data(num_samples=500, seed=42)
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate GNN training data")
+    parser.add_argument("--num-samples", type=int, default=30000, help="Number of training examples")
+    parser.add_argument("--oversample-ratio", type=float, default=0.3, help="Fraction of high-load oversampled examples")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    args = parser.parse_args()
+
+    print(f"Generating {args.num_samples} training examples (seed={args.seed}, oversample={args.oversample_ratio})...")
+    df = generate_training_data(
+        num_samples=args.num_samples,
+        oversample_ratio=args.oversample_ratio,
+        seed=args.seed,
+    )
     print(f"\nDataset shape: {df.shape}")
     print(f"\nClass distribution:")
     print(df["is_feasible"].value_counts())
-    print(f"\nSample record:")
-    print(df.iloc[0].to_dict())
+    print(f"\nTrade amount stats:")
+    print(df["amount_kw"].describe())
+    print(f"\nBaseline max voltage deviation: {df['baseline_max_v_dev'].describe()}")
+    print(f"\nTrade max line loading: {df['trade_max_line_load'].describe()}")
