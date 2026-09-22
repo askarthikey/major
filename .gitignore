@@ -49,7 +49,7 @@ Thumbs.db
 desktop.ini
 
 # Evaluation outputs
-evaluation/figures/*.png
+# evaluation/figures/*.png
 evaluation/figures/*.pdf
 
 # Environment files

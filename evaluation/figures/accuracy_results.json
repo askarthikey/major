@@ -1,0 +1,74 @@
+{
+  "gnn_metrics": {
+    "accuracy": 0.9731,
+    "precision": 0.9954,
+    "recall": 0.9727,
+    "f1": 0.984,
+    "auc_roc": 0.9966,
+    "true_negatives": 674,
+    "false_positives": 17,
+    "false_negatives": 104,
+    "true_positives": 3709,
+    "dangerous_error_rate": 0.0246,
+    "conservative_error_rate": 0.0273,
+    "false_negative_rate": 0.0246,
+    "total_infeasible": 691,
+    "total_feasible": 3813,
+    "threshold": 0.5
+  },
+  "mlp_metrics": {
+    "accuracy": 0.9789,
+    "precision": 0.9774,
+    "recall": 0.9982,
+    "f1": 0.9877,
+    "auc_roc": 0.998,
+    "true_negatives": 603,
+    "false_positives": 88,
+    "false_negatives": 7,
+    "true_positives": 3806,
+    "dangerous_error_rate": 0.1274,
+    "conservative_error_rate": 0.0018,
+    "false_negative_rate": 0.1274,
+    "total_infeasible": 691,
+    "total_feasible": 3813,
+    "threshold": 0.5
+  },
+  "test_set_size": 4504,
+  "gnn_outperforms_mlp": false,
+  "gnn_safer_than_mlp": true,
+  "comparison_summary": {
+    "Metric": [
+      "Accuracy",
+      "Precision",
+      "Recall",
+      "F1 Score",
+      "AUC-ROC",
+      "Dangerous Error Rate",
+      "Conservative Error Rate",
+      "False Positives (unsafe approved)",
+      "False Negatives (safe blocked)"
+    ],
+    "GNN (GraphSAGE)": [
+      "0.9731",
+      "0.9954",
+      "0.9727",
+      "0.9840",
+      "0.9966",
+      "0.0246 (2.46%)",
+      "0.0273 (2.73%)",
+      "17",
+      "104"
+    ],
+    "MLP Baseline": [
+      "0.9789",
+      "0.9774",
+      "0.9982",
+      "0.9877",
+      "0.9980",
+      "0.1274 (12.74%)",
+      "0.0018 (0.18%)",
+      "88",
+      "7"
+    ]
+  }
+}

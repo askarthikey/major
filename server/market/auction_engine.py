@@ -164,7 +164,7 @@ class DoubleAuctionEngine:
         self.trade_history.append(trade)
 
         logger.debug(
-            f"Trade matched: {trade.seller_order.household_id} → "
+            f"Trade matched: {trade.seller_order.household_id} -> "
             f"{trade.buyer_order.household_id}, "
             f"{trade.amount_kwh} kWh @ ₹{trade.clearing_price}/kWh"
         )
@@ -211,7 +211,6 @@ def generate_orders_from_household_states(
     - Both are better off than pure grid interaction (the value proposition of P2P)
     """
     import numpy as np
-    rng = np.random.default_rng()
 
     orders = []
 
@@ -224,26 +223,26 @@ def generate_orders_from_household_states(
 
         if has_solar and surplus > min_trade_kwh:
             # Seller: post ask at below-grid-rate (incentivize local buying)
-            ask_price = base_price_per_kwh * (0.5 + rng.random() * 0.3)  # 50-80% of grid rate
+            ask_price = base_price_per_kwh * (0.5 + np.random.random() * 0.3)  # 50-80% of grid rate
             order = Order(
                 order_id=str(uuid.uuid4())[:8],
                 household_id=hh_id,
                 bus_id=bus_id,
                 is_buy=False,
-                quantity_kwh=round(surplus * 0.25, 3),  # Convert 15-min kW to kWh
+                quantity_kwh=round(surplus * np.random.uniform(5.0, 30.0), 3),  # High volume to stress grid
                 price_per_kwh=round(ask_price, 2),
             )
             orders.append(order)
 
         elif not has_solar and load > min_trade_kwh:
             # Buyer: post bid at below-grid-rate (still cheaper than grid)
-            bid_price = base_price_per_kwh * (0.6 + rng.random() * 0.3)  # 60-90% of grid rate
+            bid_price = base_price_per_kwh * (0.6 + np.random.random() * 0.3)  # 60-90% of grid rate
             order = Order(
                 order_id=str(uuid.uuid4())[:8],
                 household_id=hh_id,
                 bus_id=bus_id,
                 is_buy=True,
-                quantity_kwh=round(load * 0.25 * rng.uniform(0.3, 0.8), 3),  # Portion of load
+                quantity_kwh=round(load * np.random.uniform(5.0, 30.0), 3),  # High volume to stress grid
                 price_per_kwh=round(bid_price, 2),
             )
             orders.append(order)

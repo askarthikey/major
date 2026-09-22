@@ -258,7 +258,7 @@ class SimulationLoop:
 
         logger.info(
             f"Timestep {timestep_idx} ({result['simulation_time']}): "
-            f"{len(orders)} orders → {len(matched_trades)} matched → "
+            f"{len(orders)} orders -> {len(matched_trades)} matched -> "
             f"{len(executed_trades)} executed, {len(rejected_trades)} rejected "
             f"({step_time_ms:.0f}ms)"
         )

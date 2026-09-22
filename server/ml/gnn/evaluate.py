@@ -161,7 +161,7 @@ def print_detailed_report(y_true: np.ndarray, y_pred_proba: np.ndarray, threshol
     y_pred = (y_pred_proba >= threshold).astype(int)
 
     print("\n" + "=" * 60)
-    print("GNN FEASIBILITY MODEL — EVALUATION REPORT")
+    print("GNN FEASIBILITY MODEL - EVALUATION REPORT")
     print("=" * 60)
 
     print(f"\nThreshold: {threshold}")
@@ -173,13 +173,13 @@ def print_detailed_report(y_true: np.ndarray, y_pred_proba: np.ndarray, threshol
 
     metrics = compute_metrics(y_true, y_pred_proba, threshold)
 
-    print(f"\n{'─' * 40}")
+    print(f"\n{'-' * 40}")
     print(f"SAFETY-CRITICAL METRICS:")
-    print(f"{'─' * 40}")
+    print(f"{'-' * 40}")
     print(f"  Dangerous Error Rate (unsafe approved):  {metrics['dangerous_error_rate']:.2%}")
     print(f"  Conservative Error Rate (safe blocked):  {metrics['conservative_error_rate']:.2%}")
     print(f"  AUC-ROC:                                 {metrics['auc_roc']:.4f}")
-    print(f"\n{'─' * 40}")
+    print(f"\n{'-' * 40}")
     print(f"  Total infeasible trades in test set:     {metrics['total_infeasible']}")
     print(f"  Total feasible trades in test set:       {metrics['total_feasible']}")
     print(f"  Unsafe trades that slipped through:      {metrics['false_positives']}")
