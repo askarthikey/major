@@ -16,7 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from ledger.database import mongodb
-from api.routes import trades, grid_state, simulation, websocket
+from fastapi import WebSocket, WebSocketDisconnect
+from api.routes import trades, grid_state, simulation
+from api.routes.websocket import manager as ws_manager, websocket_endpoint as ws_handler
 from api.middleware import global_exception_handler
 
 # Configure logging
@@ -79,7 +81,11 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.include_router(trades.router, prefix="/api")
 app.include_router(grid_state.router, prefix="/api")
 app.include_router(simulation.router, prefix="/api")
-app.include_router(websocket.router)
+# WebSocket — registered directly on app (FastAPI 0.141+ include_router WS fix)
+@app.websocket("/ws/live")
+async def websocket_live(websocket: WebSocket):
+    """Proxy to the websocket handler in api.routes.websocket."""
+    await ws_handler(websocket)
 
 
 @app.get("/", tags=["Health"])
