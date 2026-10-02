@@ -1,71 +1,67 @@
 """
 Grid state routes — current grid topology and state endpoints.
+
+Imports of pandapower-dependent modules are lazy to allow the server
+to start even if scipy/pandapower has DLL issues on this system.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from typing import List
 
-from core.feeder_setup import create_ieee13_feeder, get_topology_for_visualization
-from core.run_powerflow import solve_power_flow, get_grid_state_snapshot
-from core.attach_profiles import get_households_summary
-from market.simulation_loop import get_simulation
 from api.schemas import GridStateResponse, TopologyResponse, HouseholdResponse
 
 router = APIRouter(prefix="/grid", tags=["Grid"])
 
-# Cache the topology (it doesn't change during simulation)
-_topology_cache = None
+
+def _get_grid_modules():
+    """Lazy import of pandapower-dependent modules."""
+    try:
+        from core.feeder_setup import create_ieee13_feeder, get_topology_for_visualization
+        from core.run_powerflow import solve_power_flow, get_grid_state_snapshot
+        from core.attach_profiles import get_households_summary
+        from market.simulation_loop import get_simulation
+        return {
+            "create_feeder": create_ieee13_feeder,
+            "get_topology": get_topology_for_visualization,
+            "solve_pf": solve_power_flow,
+            "get_snapshot": get_grid_state_snapshot,
+            "get_households": get_households_summary,
+            "get_simulation": get_simulation,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Grid modules unavailable (pandapower/scipy issue): {e}"
+        )
 
 
-@router.get("/topology", response_model=TopologyResponse)
-async def get_grid_topology():
-    """
-    Get the IEEE 13-bus feeder topology for D3.js visualization.
-
-    Returns nodes (buses) and edges (lines) with their properties.
-    This is static data — the topology doesn't change during simulation.
-    """
-    global _topology_cache
-    if _topology_cache is None:
-        net = create_ieee13_feeder()
-        _topology_cache = get_topology_for_visualization(net)
-    return _topology_cache
+@router.get("/topology")
+async def get_topology():
+    """Get the static grid topology for visualization."""
+    mods = _get_grid_modules()
+    net = mods["create_feeder"]()
+    topo = mods["get_topology"](net)
+    return topo
 
 
 @router.get("/state")
-async def get_current_grid_state():
-    """
-    Get the current grid state (voltages, line loadings, violations).
+async def get_grid_state():
+    """Get the current grid state (voltages, line loadings, violations)."""
+    mods = _get_grid_modules()
+    sim = mods["get_simulation"]()
+    if sim and sim.last_grid_state:
+        return sim.last_grid_state
 
-    If a simulation is running, returns the latest state.
-    Otherwise, runs a fresh power flow on the default network.
-    """
-    sim = get_simulation()
-    if sim and sim.current_timestep > 0:
-        # Use the simulation's current network state
-        pf_result = solve_power_flow(sim.net)
-        return get_grid_state_snapshot(sim.net, pf_result)
-    else:
-        # No simulation running — solve with default loads
-        net = create_ieee13_feeder()
-        pf_result = solve_power_flow(net)
-        return get_grid_state_snapshot(net, pf_result)
+    # No simulation running — compute a fresh snapshot
+    net = mods["create_feeder"]()
+    pf_result = mods["solve_pf"](net)
+    if pf_result:
+        return pf_result
+    return {"buses": [], "lines": [], "converged": False}
 
 
-@router.get("/households", response_model=List[HouseholdResponse])
+@router.get("/households")
 async def get_households():
-    """Get all household profiles and their bus assignments."""
-    return get_households_summary()
-
-
-@router.get("/history")
-async def get_grid_history(limit: int = 50):
-    """Get historical grid snapshots from MongoDB."""
-    from ledger.database import mongodb
-
-    cursor = mongodb.grid_snapshots.find(
-        {}, {"_id": 0}
-    ).sort("timestamp", -1).limit(limit)
-
-    snapshots = await cursor.to_list(length=limit)
-    return snapshots
+    """Get the household-to-bus mapping summary."""
+    mods = _get_grid_modules()
+    return mods["get_households"]()
