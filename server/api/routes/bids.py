@@ -151,100 +151,70 @@ async def respond_to_bid(
         logger.info(f"Bid {bid_id} rejected by {user['name']}")
         return {"status": "rejected", "bid_id": bid_id, "message": "Bid rejected by seller."}
 
-    # --- ACCEPT: Run feasibility check ---
-    # For now, we execute the trade directly.
-    # In production, this would call the GNN feasibility gate.
-    # The feasibility check integration is done via the existing
-    # market/feasibility_gate.py when the simulation is running.
-    
-    # For user-initiated trades (outside simulation), we do a simplified check
-    # using the pandapower fallback or skip if the simulation infrastructure isn't loaded.
+    # --- ACCEPT: Run GNN feasibility check ---
+    # The GNN model is the primary (and only) feasibility checker.
+    # No pandapower dependency here — uses standalone_checker.
     
     trade_id = str(uuid.uuid4())[:12]
     agreed_amount = bid["requested_amount_kwh"]
     agreed_price = bid["offered_price_per_kwh"]
 
-    # Try running the feasibility gate if infrastructure is available
-    feasibility_result = None
-    final_status = "executed"
-    final_amount = agreed_amount
-    reason = None
+    # Run GNN feasibility check
+    from market.standalone_checker import get_gnn_checker
 
-    try:
-        from market.simulation_loop import get_simulation
-        from core.feeder_setup import create_ieee13_feeder
-        from core.run_powerflow import solve_power_flow
+    checker = get_gnn_checker()
+    feasibility_result = checker.check_feasibility(
+        seller_bus=user["bus_id"],
+        buyer_bus=bid["bus_id"],
+        amount_kwh=agreed_amount,
+    )
 
-        sim = get_simulation()
-        if sim and sim.net is not None:
-            net = sim.net
-        else:
-            net = create_ieee13_feeder()
-
-        pf_result = solve_power_flow(net)
-
-        if pf_result and pf_result.get("converged", False):
-            # Check if the trade would cause issues
-            from market.feasibility_gate import FeasibilityGate
-            from market.auction_engine import MatchedTrade, Order
-
-            # Build mock orders for the gate
-            buyer_order = Order(
-                order_id=bid_id,
-                household_id=f"user_{bid['buyer_user_id'][:8]}",
-                bus_id=bid["bus_id"],
-                is_buy=True,
-                quantity_kwh=agreed_amount,
-                price_per_kwh=agreed_price,
-            )
-            seller_order = Order(
-                order_id=f"listing_{listing['listing_id']}",
-                household_id=f"user_{user['id'][:8]}",
-                bus_id=user["bus_id"],
-                is_buy=False,
-                quantity_kwh=agreed_amount,
-                price_per_kwh=listing["asking_price_per_kwh"],
-            )
-            matched = MatchedTrade(
-                trade_id=trade_id,
-                buyer_order=buyer_order,
-                seller_order=seller_order,
-                amount_kwh=agreed_amount,
-                clearing_price=agreed_price,
-                buyer_bus=bid["bus_id"],
-                seller_bus=user["bus_id"],
-            )
-
-            gate = FeasibilityGate()
-            bus_voltages = {b["bus_id"]: b["voltage_pu"] for b in pf_result.get("buses", [])}
-            line_loadings = {l["line_id"]: l["loading_percent"] for l in pf_result.get("lines", [])}
-
-            trade_record = gate.check_trade(
-                matched, net, bus_voltages, line_loadings, {}
-            )
-
-            final_status = trade_record.status
-            final_amount = trade_record.amount_kwh
-            feasibility_result = trade_record.feasibility.model_dump() if trade_record.feasibility else None
-
-            if final_status == "rejected":
-                reason = "Grid feasibility check failed"
-                if feasibility_result:
-                    violated = []
-                    if feasibility_result.get("violated_buses"):
-                        violated.append(f"Voltage violations at buses: {feasibility_result['violated_buses']}")
-                    if feasibility_result.get("violated_lines"):
-                        violated.append(f"Line overloads: {feasibility_result['violated_lines']}")
-                    if violated:
-                        reason = ". ".join(violated)
-            elif final_status == "partial_fill":
-                reason = f"Only {final_amount:.3f} of {agreed_amount:.3f} kWh could be safely delivered"
-    except Exception as e:
-        # If feasibility check fails (e.g., no GNN model), execute the trade anyway
-        # and log the failure
-        logger.warning(f"Feasibility check skipped for bid {bid_id}: {e}")
+    # Determine trade outcome based on feasibility
+    if feasibility_result["is_feasible"]:
         final_status = "executed"
         final_amount = agreed_amount
+        reason = None
+        logger.info(
+            f"Trade {trade_id}: GNN FEASIBLE "
+            f"(confidence={feasibility_result['confidence']:.3f}, "
+            f"method={feasibility_result['check_method']}, "
+            f"time={feasibility_result.get('inference_time_ms', 0):.1f}ms)"
+        )
+    else:
+        # INFEASIBLE — try partial fill via binary search
+        max_feasible = checker.find_max_feasible_amount(
+            seller_bus=user["bus_id"],
+            buyer_bus=bid["bus_id"],
+            max_amount_kwh=agreed_amount,
+        )
+
+        if max_feasible and max_feasible >= 0.1:
+            final_status = "partial_fill"
+            final_amount = max_feasible
+            reason = (
+                f"Only {max_feasible:.3f} of {agreed_amount:.3f} kWh could be "
+                f"safely delivered without grid violations"
+            )
+            logger.info(
+                f"Trade {trade_id}: PARTIAL FILL "
+                f"({agreed_amount:.3f} → {max_feasible:.3f} kWh)"
+            )
+        else:
+            final_status = "rejected"
+            final_amount = 0.0
+            violated = []
+            if feasibility_result.get("violated_buses"):
+                violated.append(
+                    f"Voltage violations at buses: {feasibility_result['violated_buses']}"
+                )
+            if feasibility_result.get("violated_lines"):
+                violated.append(
+                    f"Line overloads: {feasibility_result['violated_lines']}"
+                )
+            reason = ". ".join(violated) if violated else (
+                feasibility_result.get("reason", "Trade would cause grid violations")
+            )
+            logger.info(f"Trade {trade_id}: REJECTED by GNN ({reason})")
 
     # Update bid status
     bid_status_map = {
@@ -303,10 +273,15 @@ async def respond_to_bid(
         "amount_kwh": final_amount,
         "price_per_kwh": agreed_price,
         "total_price": round(final_amount * agreed_price, 4),
+        "feasibility_method": feasibility_result.get("check_method", "unknown"),
+        "inference_time_ms": feasibility_result.get("inference_time_ms", 0),
     }
 
     if final_status == "executed":
-        response["message"] = f"Trade executed: {final_amount:.3f} kWh at ₹{agreed_price}/kWh. Grid check passed."
+        response["message"] = (
+            f"Trade executed: {final_amount:.3f} kWh at ₹{agreed_price}/kWh. "
+            f"GNN feasibility check passed (confidence: {feasibility_result['confidence']:.1%})."
+        )
     elif final_status == "partial_fill":
         response["message"] = reason or f"Partial fill: {final_amount:.3f} kWh delivered."
         response["original_amount_kwh"] = agreed_amount

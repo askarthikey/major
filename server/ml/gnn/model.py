@@ -27,7 +27,16 @@ from torch_geometric.nn import SAGEConv, GATConv, global_mean_pool, global_max_p
 from torch_geometric.data import Data, Batch
 from typing import Optional, Tuple
 
-from ml.utils.graph_features import NUM_NODE_FEATURES, NUM_EDGE_FEATURES
+# Import feature dimension constants.
+# Try standalone module first (no pandapower), fall back to graph_features.
+try:
+    from market.standalone_checker import NUM_NODE_FEATURES, NUM_EDGE_FEATURES
+except ImportError:
+    try:
+        from ml.utils.graph_features import NUM_NODE_FEATURES, NUM_EDGE_FEATURES
+    except ImportError:
+        NUM_NODE_FEATURES = 6
+        NUM_EDGE_FEATURES = 5
 
 
 class GraphSAGEFeasibility(nn.Module):
