@@ -3,7 +3,7 @@ import * as d3 from 'd3';
 import { getGridTopology } from '../../services/api';
 import { getVoltageColor, getLoadingColor } from '../../utils/formatters';
 
-export default function GridGraph({ gridState }) {
+export default function GridGraph({ gridState, highlightBus, listings = [], role, onBusClick }) {
   const svgRef = useRef(null);
   const [topology, setTopology] = useState(null);
 
@@ -45,6 +45,10 @@ export default function GridGraph({ gridState }) {
       });
     }
 
+    // Build listings lookup by bus_id
+    const listingByBus = {};
+    listings.forEach(l => { listingByBus[l.bus_id] = l; });
+
     // Fixed positions for a cleaner layout (IEEE 13-bus specific)
     const positions = {
       0: { x: width * 0.1, y: height * 0.15 },     // Substation
@@ -82,6 +86,13 @@ export default function GridGraph({ gridState }) {
     const feMerge = filter.append('feMerge');
     feMerge.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // Highlight glow filter
+    const highlightFilter = defs.append('filter').attr('id', 'highlight-glow');
+    highlightFilter.append('feGaussianBlur').attr('stdDeviation', '5').attr('result', 'coloredBlur');
+    const feMerge2 = highlightFilter.append('feMerge');
+    feMerge2.append('feMergeNode').attr('in', 'coloredBlur');
+    feMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
 
     // Draw lines
     svg.selectAll('.grid-line')
@@ -124,30 +135,63 @@ export default function GridGraph({ gridState }) {
       .data(nodes)
       .join('g')
       .attr('class', 'node-group')
-      .attr('transform', d => `translate(${d.x}, ${d.y})`);
+      .attr('transform', d => `translate(${d.x}, ${d.y})`)
+      .style('cursor', onBusClick ? 'pointer' : 'default')
+      .on('click', (event, d) => {
+        if (onBusClick) onBusClick(d.id);
+      });
 
     // Node circles
     nodeGroups.append('circle')
-      .attr('r', d => d.type === 'substation' ? 16 : 12)
+      .attr('r', d => {
+        if (d.id === highlightBus) return 18;
+        if (d.type === 'substation') return 16;
+        return 12;
+      })
       .attr('fill', d => {
+        if (d.id === highlightBus) return 'rgba(16, 185, 129, 0.3)';
         const v = busVoltages[d.id];
         if (v === undefined) return 'var(--bg-tertiary)';
         return getVoltageColor(v);
       })
-      .attr('fill-opacity', 0.25)
+      .attr('fill-opacity', d => d.id === highlightBus ? 0.4 : 0.25)
       .attr('stroke', d => {
+        if (d.id === highlightBus) return 'var(--accent-green)';
         const v = busVoltages[d.id];
         if (v === undefined) return 'var(--border-medium)';
         return getVoltageColor(v);
       })
-      .attr('stroke-width', d => busViolations.has(d.id) ? 3 : 1.5)
-      .style('filter', d => busViolations.has(d.id) ? 'url(#glow)' : 'none')
-      .style('cursor', 'pointer')
+      .attr('stroke-width', d => {
+        if (d.id === highlightBus) return 3;
+        return busViolations.has(d.id) ? 3 : 1.5;
+      })
+      .style('filter', d => {
+        if (d.id === highlightBus) return 'url(#highlight-glow)';
+        return busViolations.has(d.id) ? 'url(#glow)' : 'none';
+      })
       .style('transition', 'all 0.3s ease');
+
+    // "YOU" label on highlighted bus
+    if (highlightBus != null) {
+      const highlightNode = nodes.find(n => n.id === highlightBus);
+      if (highlightNode) {
+        svg.append('text')
+          .attr('x', highlightNode.x)
+          .attr('y', highlightNode.y + 32)
+          .attr('text-anchor', 'middle')
+          .attr('fill', 'var(--accent-green)')
+          .attr('font-size', '10px')
+          .attr('font-weight', '700')
+          .text('YOU');
+      }
+    }
 
     // Node labels
     nodeGroups.append('text')
-      .attr('y', d => d.type === 'substation' ? 28 : 24)
+      .attr('y', d => {
+        if (d.id === highlightBus) return -24;
+        return d.type === 'substation' ? 28 : 24;
+      })
       .attr('text-anchor', 'middle')
       .attr('fill', 'var(--text-secondary)')
       .attr('font-size', '10px')
@@ -156,7 +200,7 @@ export default function GridGraph({ gridState }) {
 
     // Voltage labels
     nodeGroups.append('text')
-      .attr('y', -18)
+      .attr('y', d => d.id === highlightBus ? -36 : -18)
       .attr('text-anchor', 'middle')
       .attr('fill', d => {
         const v = busVoltages[d.id];
@@ -168,6 +212,51 @@ export default function GridGraph({ gridState }) {
         const v = busVoltages[d.id];
         return v ? `${(v * 100).toFixed(1)}%` : '';
       });
+
+    // Listing price tags (for buyer view)
+    if (role === 'buyer' && listings.length > 0) {
+      nodes.forEach(node => {
+        const listing = listingByBus[node.id];
+        if (listing) {
+          const g = svg.append('g')
+            .attr('transform', `translate(${node.x + 16}, ${node.y - 16})`)
+            .style('cursor', 'pointer')
+            .on('click', () => { if (onBusClick) onBusClick(node.id); });
+
+          g.append('rect')
+            .attr('rx', 4).attr('ry', 4)
+            .attr('width', 50).attr('height', 20)
+            .attr('fill', 'var(--accent-green-dim)')
+            .attr('stroke', 'var(--accent-green)')
+            .attr('stroke-width', 1);
+
+          g.append('text')
+            .attr('x', 25).attr('y', 14)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--accent-green)')
+            .attr('font-size', '9px')
+            .attr('font-weight', '600')
+            .attr('font-family', 'var(--font-mono)')
+            .text(`₹${listing.asking_price_per_kwh.toFixed(1)}`);
+        }
+      });
+    }
+
+    // Listing indicators for seller view (show which buses have surplus)
+    if (role === 'seller' && listings.length > 0) {
+      nodes.forEach(node => {
+        const listing = listingByBus[node.id];
+        if (listing && node.id !== highlightBus) {
+          svg.append('circle')
+            .attr('cx', node.x + 14)
+            .attr('cy', node.y - 14)
+            .attr('r', 5)
+            .attr('fill', 'var(--accent-blue)')
+            .attr('stroke', 'var(--bg-primary)')
+            .attr('stroke-width', 1.5);
+        }
+      });
+    }
 
     // Legend
     const legend = svg.append('g').attr('transform', `translate(${width - 140}, ${height - 60})`);
@@ -195,7 +284,7 @@ export default function GridGraph({ gridState }) {
         .text(item.label);
     });
 
-  }, [topology, gridState]);
+  }, [topology, gridState, highlightBus, listings, role]);
 
   return (
     <div className="card">

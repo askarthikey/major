@@ -56,6 +56,8 @@ class MongoDB:
         await trades.create_index("status")
         await trades.create_index("buyer_bus")
         await trades.create_index("seller_bus")
+        await trades.create_index("buyer_user_id")
+        await trades.create_index("seller_user_id")
         await trades.create_index([("timestamp", -1)]) # Descending for recent-first queries
 
         # Grid snapshots collection
@@ -71,6 +73,26 @@ class MongoDB:
         # Simulation state collection
         sim_state = self.db["simulation_state"]
         await sim_state.create_index("session_id", unique=True)
+
+        # Users collection
+        users = self.db["users"]
+        await users.create_index("email", unique=True)
+        await users.create_index("role")
+        await users.create_index("bus_id")
+
+        # Listings collection (seller asks)
+        listings = self.db["listings"]
+        await listings.create_index("seller_user_id")
+        await listings.create_index("bus_id")
+        await listings.create_index("status")
+        await listings.create_index([("created_at", -1)])
+
+        # Bids collection (buyer offers)
+        bids = self.db["bids"]
+        await bids.create_index("listing_id")
+        await bids.create_index("buyer_user_id")
+        await bids.create_index("status")
+        await bids.create_index([("created_at", -1)])
 
         logger.info("MongoDB collections and indexes initialized")
 

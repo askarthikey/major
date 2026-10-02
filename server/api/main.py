@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
 from ledger.database import mongodb
 from fastapi import WebSocket, WebSocketDisconnect
-from api.routes import trades, grid_state, simulation
+from api.routes import trades, grid_state, simulation, auth, listings, bids, admin
 from api.routes.websocket import manager as ws_manager, websocket_endpoint as ws_handler
 from api.middleware import global_exception_handler
 
@@ -78,7 +78,11 @@ app.add_middleware(
 app.add_exception_handler(Exception, global_exception_handler)
 
 # Register routers
+app.include_router(auth.router, prefix="/api")
 app.include_router(trades.router, prefix="/api")
+app.include_router(listings.router, prefix="/api")
+app.include_router(bids.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 app.include_router(grid_state.router, prefix="/api")
 app.include_router(simulation.router, prefix="/api")
 # WebSocket — registered directly on app (FastAPI 0.141+ include_router WS fix)

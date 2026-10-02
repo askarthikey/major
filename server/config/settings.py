@@ -66,6 +66,17 @@ class Settings(BaseSettings):
         description="Maximum line loading percentage before violation",
     )
 
+    # --- Auth / JWT ---
+    jwt_secret_key: str = Field(
+        default="solar-p2p-dev-secret-change-in-production",
+        description="Secret key for JWT token signing",
+    )
+    jwt_algorithm: str = Field(default="HS256")
+    access_token_expire_minutes: int = Field(
+        default=1440,
+        description="JWT token expiry in minutes (default: 24 hours)",
+    )
+
     # --- Logging ---
     log_level: str = Field(default="INFO")
 

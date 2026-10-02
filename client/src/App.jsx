@@ -1,165 +1,107 @@
-import { useState, useEffect, useCallback } from 'react';
-import Sidebar from './components/Layout/Sidebar';
-import Header from './components/Layout/Header';
-import StatsCards from './components/Dashboard/StatsCards';
-import SimulationControls from './components/Dashboard/SimulationControls';
-import GridGraph from './components/Grid/GridGraph';
-import CongestionPanel from './components/Grid/CongestionPanel';
-import TradeFeed from './components/Trading/TradeFeed';
-import PriceChart from './components/Trading/PriceChart';
-import { useWebSocket } from './hooks/useWebSocket';
-import { getSimulationStatus, getGridState, getTradeStats } from './services/api';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+
+// Auth pages
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
+
+// Layout
+import RoleLayout from './components/Layout/RoleLayout';
+import ProtectedRoute from './components/Auth/ProtectedRoute';
+
+// Seller pages
+import SellerHome from './pages/seller/SellerHome';
+import SellerHistory from './pages/seller/SellerHistory';
+
+// Buyer pages
+import BuyerHome from './pages/buyer/BuyerHome';
+import BuyerHistory from './pages/buyer/BuyerHistory';
+
+// Admin pages
+import AdminGrid from './pages/admin/AdminGrid';
+import AdminTrades from './pages/admin/AdminTrades';
+import AdminStats from './pages/admin/AdminStats';
+import AdminLedger from './pages/admin/AdminLedger';
+
 import './App.css';
 
 function App() {
-  const { isConnected, lastMessage } = useWebSocket();
+  const { user, loading } = useAuth();
 
-  // State
-  const [simState, setSimState] = useState({
-    is_running: false,
-    current_timestep: 0,
-    total_timesteps: 96,
-  });
-  const [gridState, setGridState] = useState(null);
-  const [trades, setTrades] = useState([]);
-  const [priceHistory, setPriceHistory] = useState([]);
-  const [stats, setStats] = useState({
-    totalEnergyKwh: 0,
-    totalTradesExecuted: 0,
-    totalTradesRejected: 0,
-    violationsPrevented: 0,
-    totalRevenue: 0,
-    avgPrice: 0,
-    gridHealthy: true,
-    voltageViolations: 0,
-  });
-  const [simulationTime, setSimulationTime] = useState(null);
-
-  // Poll simulation status periodically
-  const fetchStatus = useCallback(async () => {
-    try {
-      const status = await getSimulationStatus();
-      setSimState(status);
-    } catch {
-      // Server not available yet — ignore
-    }
-  }, []);
-
-  // Fetch initial grid state
-  const fetchGridState = useCallback(async () => {
-    try {
-      const state = await getGridState();
-      setGridState(state);
-    } catch {
-      // Ignore
-    }
-  }, []);
-
-  // Initial data fetch
-  useEffect(() => {
-    fetchStatus();
-    fetchGridState();
-    const interval = setInterval(fetchStatus, 5000);
-    return () => clearInterval(interval);
-  }, [fetchStatus, fetchGridState]);
-
-  // Handle WebSocket messages
-  useEffect(() => {
-    if (!lastMessage || lastMessage.type !== 'simulation_step') return;
-
-    const data = lastMessage.data;
-
-    // Update simulation time
-    setSimulationTime(data.simulation_time);
-
-    // Update grid state
-    if (data.grid_state) {
-      setGridState(data.grid_state);
-    }
-
-    // Update trades
-    if (data.trades) {
-      setTrades(prev => [...data.trades, ...prev].slice(0, 200));
-    }
-
-    // Update price history
-    if (data.trades?.length > 0) {
-      const executedTrades = data.trades.filter(t =>
-        t.status === 'executed' || t.status === 'partial_fill'
-      );
-      if (executedTrades.length > 0) {
-        const prices = executedTrades.map(t => t.price || t.price_per_kwh || 0);
-        setPriceHistory(prev => [
-          ...prev,
-          {
-            time: data.simulation_time,
-            avgPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
-            maxPrice: Math.max(...prices),
-            minPrice: Math.min(...prices),
-          },
-        ].slice(-96)); // Keep last 96 points
-      }
-    }
-
-    // Update aggregate stats
-    setStats({
-      totalEnergyKwh: data.total_energy_kwh || 0,
-      totalTradesExecuted: data.trades_executed || 0,
-      totalTradesRejected: data.trades_rejected || 0,
-      violationsPrevented: data.violations_prevented || 0,
-      totalRevenue: 0,
-      avgPrice: 0,
-      gridHealthy: data.grid_healthy ?? true,
-      voltageViolations: data.grid_state?.num_voltage_violations || 0,
-    });
-
-    // Also update sim state from WS
-    setSimState(prev => ({
-      ...prev,
-      is_running: true,
-      current_timestep: (data.timestep || 0) + 1,
-    }));
-  }, [lastMessage]);
+  if (loading) {
+    return (
+      <div className="loading-overlay" style={{ minHeight: '100vh' }}>
+        <div className="spinner"></div>
+        <span>Loading Solar P2P...</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="app-layout">
-      <Sidebar />
+    <Routes>
+      {/* Public routes */}
+      <Route
+        path="/login"
+        element={user ? <Navigate to={`/${user.role}`} replace /> : <LoginPage />}
+      />
+      <Route
+        path="/signup"
+        element={user ? <Navigate to={`/${user.role}`} replace /> : <SignupPage />}
+      />
 
-      <div className="app-main">
-        <Header
-          isConnected={isConnected}
-          simulationTime={simulationTime}
-          isRunning={simState.is_running}
-        />
+      {/* Seller routes */}
+      <Route
+        path="/seller"
+        element={
+          <ProtectedRoute allowedRoles={['seller']}>
+            <RoleLayout role="seller" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<SellerHome />} />
+        <Route path="history" element={<SellerHistory />} />
+      </Route>
 
-        <div className="app-content">
-          <div className="dashboard-grid">
-            {/* Stats Overview */}
-            <StatsCards stats={stats} />
+      {/* Buyer routes */}
+      <Route
+        path="/buyer"
+        element={
+          <ProtectedRoute allowedRoles={['buyer']}>
+            <RoleLayout role="buyer" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<BuyerHome />} />
+        <Route path="history" element={<BuyerHistory />} />
+      </Route>
 
-            {/* Main content grid */}
-            <div className="main-grid">
-              {/* Left column */}
-              <div className="flex flex-col gap-lg">
-                <GridGraph gridState={gridState} />
-                <PriceChart priceHistory={priceHistory} />
-              </div>
+      {/* Admin routes */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <RoleLayout role="admin" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<AdminGrid />} />
+        <Route path="trades" element={<AdminTrades />} />
+        <Route path="stats" element={<AdminStats />} />
+        <Route path="ledger" element={<AdminLedger />} />
+      </Route>
 
-              {/* Right column */}
-              <div className="flex flex-col gap-lg">
-                <SimulationControls
-                  isRunning={simState.is_running}
-                  currentTimestep={simState.current_timestep}
-                  totalTimesteps={simState.total_timesteps}
-                />
-                <CongestionPanel gridState={gridState} />
-                <TradeFeed trades={trades} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      {/* Default redirect */}
+      <Route
+        path="*"
+        element={
+          user ? (
+            <Navigate to={`/${user.role}`} replace />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+    </Routes>
   );
 }
 
