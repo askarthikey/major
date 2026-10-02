@@ -110,16 +110,31 @@ async def root():
 @app.get("/api/health", tags=["Health"])
 async def health_check():
     """Detailed health check endpoint."""
-    from market.simulation_loop import get_simulation
 
-    sim = get_simulation()
+    # Lazy import simulation to avoid pandapower crash
+    sim_running = False
+    try:
+        from market.simulation_loop import get_simulation
+        sim = get_simulation()
+        sim_running = sim.is_running if sim else False
+    except Exception:
+        pass
+
+    # Check GNN model status via standalone checker
+    gnn_loaded = False
+    try:
+        from market.standalone_checker import get_gnn_checker
+        checker = get_gnn_checker()
+        gnn_loaded = checker.model_loaded
+    except Exception:
+        pass
 
     health = {
         "status": "healthy",
         "version": "1.0.0",
         "mongodb_connected": False,
-        "gnn_model_loaded": False,
-        "simulation_running": sim.is_running if sim else False,
+        "gnn_model_loaded": gnn_loaded,
+        "simulation_running": sim_running,
     }
 
     # Check MongoDB

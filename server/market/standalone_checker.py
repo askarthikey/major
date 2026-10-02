@@ -30,35 +30,35 @@ NUM_BUSES = 13
 # Edges: (from_bus, to_bus) — lines + transformers
 # From feeder_setup.py: 10 lines + 2 transformers
 TOPOLOGY_EDGES = [
-    # Lines
-    (1, 2),   # Bus 650 → Bus 632
-    (2, 3),   # Bus 632 → Bus 633
-    (3, 4),   # Bus 633 → Bus 634
-    (2, 5),   # Bus 632 → Bus 645
-    (5, 6),   # Bus 645 → Bus 646
-    (2, 7),   # Bus 632 → Bus 671
-    (7, 8),   # Bus 671 → Bus 692
-    (8, 9),   # Bus 692 → Bus 675
-    (7, 10),  # Bus 671 → Bus 611
-    (7, 12),  # Bus 671 → Bus 680
-    # Transformers
-    (0, 1),   # Substation → Bus 650 (external grid trafo)
-    (7, 11),  # Bus 671 → Bus 652 (step-down trafo)
+    # Lines (10 lines — matches feeder_setup.py line_specs)
+    (1, 2),   # Line_650-632  (main trunk)
+    (2, 3),   # Line_632-633
+    (2, 5),   # Line_632-645
+    (5, 6),   # Line_645-646
+    (2, 7),   # Line_632-671  (major trunk)
+    (7, 8),   # Line_671-692  (switch)
+    (8, 9),   # Line_692-675
+    (7, 10),  # Line_671-611
+    (7, 11),  # Line_671-652
+    (7, 12),  # Line_671-680
+    # Transformers (2 trafos)
+    (0, 1),   # Substation → Bus 650 (115kV/4.16kV)
+    (3, 4),   # Bus 633 → Bus 634 (4.16kV/0.48kV step-down)
 ]
 
 # Line parameters (r_ohm_per_km, x_ohm_per_km, max_i_ka, length_km)
-# These approximate the IEEE 13-bus from feeder_setup.py
+# Exact values from feeder_setup.py line_specs
 LINE_PARAMS = [
-    (0.40, 0.30, 0.40, 0.60),   # 650-632
-    (0.50, 0.35, 0.35, 0.50),   # 632-633
-    (0.50, 0.35, 0.35, 0.30),   # 633-634
-    (0.50, 0.35, 0.35, 0.50),   # 632-645
-    (0.50, 0.35, 0.30, 0.30),   # 645-646
-    (0.50, 0.35, 0.40, 0.60),   # 632-671
-    (0.50, 0.35, 0.30, 0.30),   # 671-692
-    (0.50, 0.35, 0.30, 0.50),   # 692-675
-    (0.50, 0.35, 0.30, 0.30),   # 671-611
-    (0.50, 0.35, 0.35, 0.30),   # 671-680
+    (0.089, 0.076, 0.700, 0.610),  # Line_650-632  (main trunk)
+    (0.089, 0.076, 0.200, 0.152),  # Line_632-633
+    (0.089, 0.076, 0.200, 0.152),  # Line_632-645
+    (0.089, 0.076, 0.150, 0.091),  # Line_645-646
+    (0.089, 0.076, 0.550, 0.610),  # Line_632-671  (major trunk)
+    (0.089, 0.076, 0.300, 0.001),  # Line_671-692  (switch)
+    (0.089, 0.076, 0.250, 0.152),  # Line_692-675
+    (0.089, 0.076, 0.120, 0.091),  # Line_671-611
+    (0.089, 0.076, 0.120, 0.244),  # Line_671-652
+    (0.089, 0.076, 0.120, 0.305),  # Line_671-680
 ]
 
 # Transformer defaults

@@ -11,7 +11,6 @@ function getAuthHeaders() {
 
 async function fetchJSON(url, options = {}) {
   const response = await fetch(`${API_BASE}${url}`, {
-    headers: getAuthHeaders(),
     ...options,
     headers: { ...getAuthHeaders(), ...options.headers },
   });
