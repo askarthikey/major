@@ -274,22 +274,79 @@ export default function SellerHome() {
             )}
           </div>
 
-          {/* Feasibility Result */}
+          {/* Trade / Delivery Result */}
           {tradeResult && (
             <div className={`card feasibility-result ${tradeResult.status}`}>
               <div className="card-header">
                 <span className="card-title">⚡ Trade Result</span>
-                <span className={`badge ${tradeResult.status === 'executed' ? 'executed' : tradeResult.status === 'partial_fill' ? 'partial' : 'rejected'}`}>
-                  {tradeResult.status.replace('_', ' ')}
+                <span className={`badge ${tradeResult.status === 'completed' || tradeResult.status === 'executed' ? 'executed' : tradeResult.status === 'under_delivered' ? 'partial' : 'rejected'}`}>
+                  {tradeResult.status?.replace(/_/g, ' ')}
                 </span>
               </div>
-              <p className="text-sm" style={{ marginBottom: 8 }}>{tradeResult.message}</p>
-              {tradeResult.amount_kwh != null && (
+              <p className="text-sm" style={{ marginBottom: 12 }}>{tradeResult.message}</p>
+
+              {/* Delivery Pipeline Breakdown */}
+              {tradeResult.scheduled_kwh != null && (
+                <div className="delivery-pipeline">
+                  <div className="delivery-row">
+                    <span className="delivery-label">📋 Listed</span>
+                    <span className="text-mono">{(tradeResult.original_amount_kwh || tradeResult.scheduled_kwh)?.toFixed(3)} kWh</span>
+                  </div>
+                  <div className="delivery-row">
+                    <span className="delivery-label">✅ Scheduled</span>
+                    <span className="text-mono">{tradeResult.scheduled_kwh?.toFixed(3)} kWh</span>
+                  </div>
+                  <div className="delivery-row" style={{ fontWeight: 600 }}>
+                    <span className="delivery-label">⚡ Delivered</span>
+                    <span className="text-mono" style={{ color: tradeResult.status === 'under_delivered' ? 'var(--accent-amber)' : 'var(--accent-green)' }}>
+                      {tradeResult.actual_delivered_kwh?.toFixed(3)} kWh
+                    </span>
+                  </div>
+                  {tradeResult.listing_remaining_kwh != null && tradeResult.listing_remaining_kwh > 0.01 && (
+                    <div className="delivery-row">
+                      <span className="delivery-label">📦 Remaining</span>
+                      <span className="text-mono text-muted">{tradeResult.listing_remaining_kwh?.toFixed(3)} kWh</span>
+                    </div>
+                  )}
+
+                  {/* Efficiency bar */}
+                  {tradeResult.delivery_efficiency != null && (
+                    <div style={{ marginTop: 10 }}>
+                      <div className="flex items-center" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span className="text-xs text-muted">Delivery Efficiency</span>
+                        <span className="text-xs text-mono">{tradeResult.delivery_efficiency.toFixed(1)}%</span>
+                      </div>
+                      <div className="delivery-bar-track">
+                        <div
+                          className="delivery-bar-fill"
+                          style={{
+                            width: `${Math.min(100, tradeResult.delivery_efficiency)}%`,
+                            background: tradeResult.delivery_efficiency >= 98 ? 'var(--accent-green)' : 'var(--accent-amber)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dispatch details */}
+                  {tradeResult.dispatch_power_kw != null && (
+                    <div className="delivery-dispatch" style={{ marginTop: 10 }}>
+                      <span className="text-xs text-muted">
+                        Dispatch: {tradeResult.dispatch_power_kw?.toFixed(1)} kW × {tradeResult.delivery_duration_hours?.toFixed(2)}h
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Fallback for old-style results */}
+              {tradeResult.scheduled_kwh == null && tradeResult.amount_kwh != null && (
                 <p className="text-mono text-sm text-muted">
                   {tradeResult.amount_kwh.toFixed(3)} kWh @ ₹{tradeResult.price_per_kwh?.toFixed(2)}/kWh
                   = ₹{tradeResult.total_price?.toFixed(2)}
                 </p>
               )}
+
               <button className="btn btn-ghost btn-sm mt-sm" onClick={() => setTradeResult(null)}>Dismiss</button>
             </div>
           )}

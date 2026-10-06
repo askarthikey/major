@@ -17,6 +17,11 @@ class TradeStatus(str, Enum):
     EXECUTED = "executed"         # Successfully executed
     PARTIAL_FILL = "partial_fill" # Partially filled (reduced quantity to maintain feasibility)
     REJECTED = "rejected"         # Rejected after feasibility check
+    # Delivery pipeline statuses
+    SCHEDULED = "scheduled"       # Feasibility passed, delivery scheduled
+    DELIVERING = "delivering"     # Physical delivery in progress (simulated)
+    COMPLETED = "completed"       # Delivery completed, actual energy metered
+    UNDER_DELIVERED = "under_delivered"  # Delivered less than scheduled (>2% discrepancy)
 
 
 class FeasibilityResult(BaseModel):
@@ -55,6 +60,28 @@ class TradeRecord(BaseModel):
     original_amount_kwh: Optional[float] = Field(
         default=None,
         description="Original amount before partial fill adjustment",
+    )
+    
+    # Delivery layer fields
+    scheduled_kwh: Optional[float] = Field(
+        default=None,
+        description="Energy scheduled for delivery after feasibility (kWh)",
+    )
+    actual_delivered_kwh: Optional[float] = Field(
+        default=None,
+        description="Actual metered energy delivered (kWh) — may differ from scheduled",
+    )
+    delivery: Optional[dict] = Field(
+        default=None,
+        description="Full delivery simulation result (schedule, intervals, losses)",
+    )
+    listing_original_kwh: Optional[float] = Field(
+        default=None,
+        description="Original listing amount before this trade (for tracking partial fulfillment)",
+    )
+    listing_remaining_kwh: Optional[float] = Field(
+        default=None,
+        description="Remaining energy in listing after this trade",
     )
     
     # Status and feasibility

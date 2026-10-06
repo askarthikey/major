@@ -29,14 +29,19 @@ export default function AdminStats() {
         <div className="stat-card green">
           <div className="stat-label">Total Trades</div>
           <div className="stat-value">{stats.total_trades}</div>
-          <div className="stat-subtitle">{stats.total_executed} executed, {stats.total_partial} partial, {stats.total_rejected} rejected</div>
+          <div className="stat-subtitle">
+            {stats.total_executed} completed, {stats.total_partial} partial, {stats.total_rejected} rejected
+            {stats.total_under_delivered > 0 && `, ${stats.total_under_delivered} under-delivered`}
+          </div>
           <div className="stat-icon">🔄</div>
         </div>
 
         <div className="stat-card blue">
-          <div className="stat-label">Energy Traded</div>
+          <div className="stat-label">Energy Delivered</div>
           <div className="stat-value">{stats.total_energy_kwh?.toFixed(1)}</div>
-          <div className="stat-subtitle">kWh total</div>
+          <div className="stat-subtitle">
+            {stats.total_scheduled_kwh ? `of ${stats.total_scheduled_kwh?.toFixed(1)} kWh scheduled` : 'kWh total'}
+          </div>
           <div className="stat-icon">⚡</div>
         </div>
 

@@ -31,8 +31,12 @@ export function getLoadingColor(pct) {
 export function getStatusColor(status) {
   switch (status) {
     case 'executed': return 'var(--accent-green)';
+    case 'completed': return 'var(--accent-green)';
     case 'rejected': return 'var(--accent-red)';
     case 'partial_fill': return 'var(--accent-amber)';
+    case 'under_delivered': return 'var(--accent-amber)';
+    case 'scheduled': return 'var(--accent-blue)';
+    case 'delivering': return 'var(--accent-blue)';
     default: return 'var(--accent-blue)';
   }
 }

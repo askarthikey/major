@@ -162,7 +162,10 @@ class SimulationLoop:
         self.auction.clear_order_books()
         matched_trades = self.auction.submit_bulk_orders(orders)
 
-        # --- 5. Feasibility gate ---
+        # --- 5. Feasibility gate + Delivery simulation ---
+        from market.delivery_simulator import get_delivery_simulator
+        delivery_sim = get_delivery_simulator()
+
         executed_trades = []
         rejected_trades = []
 
@@ -175,6 +178,31 @@ class SimulationLoop:
                 household_states=self.household_states,
             )
             trade_record.simulation_timestep = timestep_idx
+
+            # --- 5b. Delivery simulation for feasible trades ---
+            if trade_record.status in (TradeStatus.EXECUTED, TradeStatus.PARTIAL_FILL):
+                scheduled_kwh = trade_record.amount_kwh
+                delivery_result = delivery_sim.simulate_delivery(
+                    scheduled_kwh=scheduled_kwh,
+                    seller_bus=trade_record.seller_bus,
+                    buyer_bus=trade_record.buyer_bus,
+                )
+
+                # Update trade record with delivery data
+                trade_record.scheduled_kwh = scheduled_kwh
+                trade_record.actual_delivered_kwh = delivery_result.actual_delivered_kwh
+                trade_record.delivery = delivery_result.to_dict()
+
+                # Update total_price based on actual delivery
+                trade_record.total_price = round(
+                    delivery_result.actual_delivered_kwh * trade_record.price_per_kwh, 4
+                )
+
+                # Set final status based on delivery outcome
+                if delivery_result.delivery_status == "under_delivered":
+                    trade_record.status = TradeStatus.UNDER_DELIVERED
+                else:
+                    trade_record.status = TradeStatus.COMPLETED
 
             # --- 6. Log to ledger ---
             trade_dict = trade_record.model_dump()
@@ -189,10 +217,14 @@ class SimulationLoop:
             except Exception as e:
                 logger.error(f"Failed to append trade to ledger: {e}")
 
-            if trade_record.status in (TradeStatus.EXECUTED, TradeStatus.PARTIAL_FILL):
+            if trade_record.status in (
+                TradeStatus.EXECUTED, TradeStatus.PARTIAL_FILL,
+                TradeStatus.COMPLETED, TradeStatus.UNDER_DELIVERED,
+            ):
                 executed_trades.append(trade_record)
                 self.state.total_trades_executed += 1
-                self.state.total_energy_traded_kwh += trade_record.amount_kwh
+                actual_kwh = trade_record.actual_delivered_kwh or trade_record.amount_kwh
+                self.state.total_energy_traded_kwh += actual_kwh
                 self.state.total_revenue += trade_record.total_price
                 if trade_record.status == TradeStatus.PARTIAL_FILL:
                     self.state.total_trades_partial += 1
@@ -244,6 +276,8 @@ class SimulationLoop:
                                 "trade_id": t.trade_id,
                                 "seller": t.seller_household_id,
                                 "buyer": t.buyer_household_id,
+                                "scheduled_kwh": t.scheduled_kwh or t.amount_kwh,
+                                "actual_delivered_kwh": t.actual_delivered_kwh or t.amount_kwh,
                                 "amount_kwh": t.amount_kwh,
                                 "price": t.price_per_kwh,
                                 "status": t.status,

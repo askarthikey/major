@@ -35,6 +35,7 @@ export const getTrades = (limit = 50, skip = 0) => fetchJSON(`/trades?limit=${li
 export const getTradeStats = () => fetchJSON('/trades/stats');
 export const verifyChain = () => fetchJSON('/trades/verify-chain');
 export const getMyTrades = (limit = 50) => authFetch(`/trades/mine?limit=${limit}`);
+export const getTradeDelivery = (tradeId) => fetchJSON(`/trades/${tradeId}/delivery`);
 export const getAllTrades = (params = {}) => {
   const qs = new URLSearchParams();
   if (params.limit) qs.set('limit', params.limit);

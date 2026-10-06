@@ -71,7 +71,7 @@ async def get_trade_stats():
                 "_id": None,
                 "total_trades": {"$sum": 1},
                 "total_executed": {
-                    "$sum": {"$cond": [{"$eq": ["$status", "executed"]}, 1, 0]}
+                    "$sum": {"$cond": [{"$in": ["$status", ["executed", "completed"]]}, 1, 0]}
                 },
                 "total_rejected": {
                     "$sum": {"$cond": [{"$eq": ["$status", "rejected"]}, 1, 0]}
@@ -79,15 +79,24 @@ async def get_trade_stats():
                 "total_partial": {
                     "$sum": {"$cond": [{"$eq": ["$status", "partial_fill"]}, 1, 0]}
                 },
+                "total_under_delivered": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "under_delivered"]}, 1, 0]}
+                },
                 "total_energy_kwh": {
                     "$sum": {"$cond": [
-                        {"$in": ["$status", ["executed", "partial_fill"]]},
-                        "$amount_kwh", 0
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
+                        {"$ifNull": ["$actual_delivered_kwh", "$amount_kwh"]}, 0
+                    ]}
+                },
+                "total_scheduled_kwh": {
+                    "$sum": {"$cond": [
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
+                        {"$ifNull": ["$scheduled_kwh", "$amount_kwh"]}, 0
                     ]}
                 },
                 "total_revenue": {
                     "$sum": {"$cond": [
-                        {"$in": ["$status", ["executed", "partial_fill"]]},
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
                         "$total_price", 0
                     ]}
                 },
@@ -150,3 +159,32 @@ async def get_trade(trade_id: str):
     if not trade:
         raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
     return trade
+
+
+@router.get("/{trade_id}/delivery")
+async def get_trade_delivery(trade_id: str):
+    """Get detailed delivery information for a trade."""
+    trade = await mongodb.trades.find_one(
+        {"trade_id": trade_id},
+        {"_id": 0},
+    )
+    if not trade:
+        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
+
+    delivery = trade.get("delivery")
+    if not delivery:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Trade {trade_id} has no delivery data (may be rejected or pending)",
+        )
+
+    return {
+        "trade_id": trade_id,
+        "status": trade.get("status"),
+        "scheduled_kwh": trade.get("scheduled_kwh"),
+        "actual_delivered_kwh": trade.get("actual_delivered_kwh"),
+        "original_amount_kwh": trade.get("original_amount_kwh"),
+        "listing_original_kwh": trade.get("listing_original_kwh"),
+        "listing_remaining_kwh": trade.get("listing_remaining_kwh"),
+        "delivery": delivery,
+    }

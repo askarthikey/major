@@ -171,8 +171,8 @@ async def respond_to_bid(
 
     # Determine trade outcome based on feasibility
     if feasibility_result["is_feasible"]:
-        final_status = "executed"
-        final_amount = agreed_amount
+        feasible_amount = agreed_amount
+        is_partial = False
         reason = None
         logger.info(
             f"Trade {trade_id}: GNN FEASIBLE "
@@ -189,8 +189,8 @@ async def respond_to_bid(
         )
 
         if max_feasible and max_feasible >= 0.1:
-            final_status = "partial_fill"
-            final_amount = max_feasible
+            feasible_amount = max_feasible
+            is_partial = True
             reason = (
                 f"Only {max_feasible:.3f} of {agreed_amount:.3f} kWh could be "
                 f"safely delivered without grid violations"
@@ -200,8 +200,9 @@ async def respond_to_bid(
                 f"({agreed_amount:.3f} → {max_feasible:.3f} kWh)"
             )
         else:
-            final_status = "rejected"
-            final_amount = 0.0
+            # Full rejection — no delivery possible
+            feasible_amount = 0.0
+            is_partial = False
             violated = []
             if feasibility_result.get("violated_buses"):
                 violated.append(
@@ -216,34 +217,101 @@ async def respond_to_bid(
             )
             logger.info(f"Trade {trade_id}: REJECTED by GNN ({reason})")
 
+            # --- REJECTED: no delivery, record and return ---
+            await mongodb.db["bids"].update_one(
+                {"bid_id": bid_id},
+                {"$set": {"status": "feasibility_rejected", "final_amount_kwh": 0.0}},
+            )
+
+            trade_data = {
+                "trade_id": trade_id,
+                "timestamp": datetime.now(timezone.utc),
+                "buyer_bus": bid["bus_id"],
+                "seller_bus": user["bus_id"],
+                "buyer_user_id": bid["buyer_user_id"],
+                "seller_user_id": user["id"],
+                "buyer_household_id": f"user_{bid['buyer_user_id'][:8]}",
+                "seller_household_id": f"user_{user['id'][:8]}",
+                "amount_kwh": 0.0,
+                "price_per_kwh": agreed_price,
+                "total_price": 0.0,
+                "original_amount_kwh": agreed_amount,
+                "status": "rejected",
+                "feasibility": feasibility_result,
+                "simulation_timestep": 0,
+            }
+            await append_trade(trade_data)
+
+            return {
+                "status": "rejected",
+                "bid_id": bid_id,
+                "trade_id": trade_id,
+                "amount_kwh": 0.0,
+                "price_per_kwh": agreed_price,
+                "total_price": 0.0,
+                "message": reason or "Trade blocked: would cause grid violations.",
+                "feasibility_method": feasibility_result.get("check_method", "unknown"),
+                "inference_time_ms": feasibility_result.get("inference_time_ms", 0),
+                "feasibility": feasibility_result,
+            }
+
+    # ─── DELIVERY PIPELINE ───────────────────────────────────────────
+    # Feasibility passed (fully or partially). Now simulate physical delivery.
+    #
+    #   MARKET LAYER       "feasible_amount kWh approved"
+    #        ↓
+    #   PHYSICAL LAYER     "X kW dispatched over Y hours"
+    #        ↓
+    #   MEASUREMENT LAYER  "actual_delivered kWh metered"
+    # ──────────────────────────────────────────────────────────────────
+
+    from market.delivery_simulator import get_delivery_simulator
+
+    simulator = get_delivery_simulator()
+    delivery_result = simulator.simulate_delivery(
+        scheduled_kwh=feasible_amount,
+        seller_bus=user["bus_id"],
+        buyer_bus=bid["bus_id"],
+    )
+
+    actual_delivered = delivery_result.actual_delivered_kwh
+
+    # Determine final status based on delivery outcome
+    if delivery_result.delivery_status == "under_delivered":
+        final_status = "under_delivered"
+    elif is_partial:
+        final_status = "completed"  # partial feasibility but delivery completed
+    else:
+        final_status = "completed"
+
     # Update bid status
     bid_status_map = {
-        "executed": "accepted",
-        "partial_fill": "feasibility_partial",
-        "rejected": "feasibility_rejected",
+        "completed": "accepted",
+        "under_delivered": "accepted",
     }
     await mongodb.db["bids"].update_one(
         {"bid_id": bid_id},
         {"$set": {
             "status": bid_status_map.get(final_status, "accepted"),
-            "final_amount_kwh": final_amount,
+            "final_amount_kwh": actual_delivered,
+            "scheduled_amount_kwh": feasible_amount,
         }},
     )
 
-    # Update listing
-    if final_status in ("executed", "partial_fill"):
-        remaining = listing["amount_kwh_available"] - final_amount
-        listing_status = "closed" if remaining <= 0.01 else "partially_filled"
-        await mongodb.db["listings"].update_one(
-            {"listing_id": listing["listing_id"]},
-            {"$set": {
-                "amount_kwh_available": max(0, remaining),
-                "status": listing_status,
-                "updated_at": datetime.now(timezone.utc),
-            }},
-        )
+    # Update listing — decrement by scheduled (feasible) amount
+    listing_original = listing["amount_kwh_available"]
+    remaining = listing_original - feasible_amount
+    listing_status = "closed" if remaining <= 0.01 else "partially_filled"
+    await mongodb.db["listings"].update_one(
+        {"listing_id": listing["listing_id"]},
+        {"$set": {
+            "amount_kwh_available": max(0, remaining),
+            "status": listing_status,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
 
-    # Create ledger entry (ALL outcomes get recorded per spec §2.4.6)
+    # Create ledger entry with full delivery data
     trade_data = {
         "trade_id": trade_id,
         "timestamp": datetime.now(timezone.utc),
@@ -253,41 +321,67 @@ async def respond_to_bid(
         "seller_user_id": user["id"],
         "buyer_household_id": f"user_{bid['buyer_user_id'][:8]}",
         "seller_household_id": f"user_{user['id'][:8]}",
-        "amount_kwh": final_amount,
+        "amount_kwh": feasible_amount,
         "price_per_kwh": agreed_price,
-        "total_price": round(final_amount * agreed_price, 4),
-        "original_amount_kwh": agreed_amount if final_status == "partial_fill" else None,
+        "total_price": round(actual_delivered * agreed_price, 4),
+        "original_amount_kwh": agreed_amount if is_partial else None,
+        "scheduled_kwh": feasible_amount,
+        "actual_delivered_kwh": actual_delivered,
+        "delivery": delivery_result.to_dict(),
+        "listing_original_kwh": listing_original,
+        "listing_remaining_kwh": max(0, remaining),
         "status": final_status,
         "feasibility": feasibility_result,
         "simulation_timestep": 0,
     }
     await append_trade(trade_data)
 
-    logger.info(f"Bid {bid_id} accepted → trade {trade_id} ({final_status})")
+    logger.info(
+        f"Bid {bid_id} accepted → trade {trade_id} ({final_status}): "
+        f"scheduled {feasible_amount:.3f} kWh, delivered {actual_delivered:.3f} kWh "
+        f"({delivery_result.delivery_efficiency:.1%} efficiency)"
+    )
 
     # Build response
     response = {
         "status": final_status,
         "bid_id": bid_id,
         "trade_id": trade_id,
-        "amount_kwh": final_amount,
+        "amount_kwh": feasible_amount,
+        "scheduled_kwh": feasible_amount,
+        "actual_delivered_kwh": actual_delivered,
         "price_per_kwh": agreed_price,
-        "total_price": round(final_amount * agreed_price, 4),
+        "total_price": round(actual_delivered * agreed_price, 4),
         "feasibility_method": feasibility_result.get("check_method", "unknown"),
         "inference_time_ms": feasibility_result.get("inference_time_ms", 0),
+        "delivery_efficiency": round(delivery_result.delivery_efficiency * 100, 1),
+        "delivery_duration_hours": round(delivery_result.delivery_duration_hours, 2),
+        "dispatch_power_kw": round(delivery_result.dispatch_power_kw, 1),
+        "listing_remaining_kwh": max(0, remaining),
     }
 
-    if final_status == "executed":
+    if final_status == "completed" and not is_partial:
         response["message"] = (
-            f"Trade executed: {final_amount:.3f} kWh at ₹{agreed_price}/kWh. "
-            f"GNN feasibility check passed (confidence: {feasibility_result['confidence']:.1%})."
+            f"Trade completed: {actual_delivered:.3f} kWh delivered "
+            f"(scheduled {feasible_amount:.3f} kWh) at ₹{agreed_price}/kWh. "
+            f"Delivery efficiency: {delivery_result.delivery_efficiency:.1%}. "
+            f"GNN feasibility confidence: {feasibility_result['confidence']:.1%}."
         )
-    elif final_status == "partial_fill":
-        response["message"] = reason or f"Partial fill: {final_amount:.3f} kWh delivered."
+    elif final_status == "completed" and is_partial:
+        response["message"] = (
+            f"Partial trade completed: {actual_delivered:.3f} kWh delivered "
+            f"(only {feasible_amount:.3f} of {agreed_amount:.3f} kWh was feasible). "
+            f"Delivery efficiency: {delivery_result.delivery_efficiency:.1%}."
+        )
         response["original_amount_kwh"] = agreed_amount
-    elif final_status == "rejected":
-        response["message"] = reason or "Trade blocked: would cause grid violations."
-        response["feasibility"] = feasibility_result
+    elif final_status == "under_delivered":
+        response["message"] = (
+            f"Under-delivered: {actual_delivered:.3f} kWh of {feasible_amount:.3f} kWh scheduled "
+            f"({delivery_result.discrepancy_percent:.1f}% shortfall due to "
+            f"solar intermittency and network losses)."
+        )
+        if is_partial:
+            response["original_amount_kwh"] = agreed_amount
 
     return response
 

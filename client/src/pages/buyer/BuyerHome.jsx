@@ -209,8 +209,14 @@ export default function BuyerHome() {
                     <div className="bid-info">
                       <span className="text-sm">Listing: Bus {bid.bus_id || '?'}</span>
                       <span className="text-mono text-xs">
-                        {bid.requested_amount_kwh?.toFixed(2)} kWh @ ₹{bid.offered_price_per_kwh?.toFixed(2)}
+                        Requested: {bid.requested_amount_kwh?.toFixed(2)} kWh @ ₹{bid.offered_price_per_kwh?.toFixed(2)}
                       </span>
+                      {bid.scheduled_amount_kwh != null && (
+                        <span className="text-mono text-xs text-muted">
+                          Scheduled: {bid.scheduled_amount_kwh?.toFixed(2)} kWh
+                          {bid.final_amount_kwh != null && ` → Delivered: ${bid.final_amount_kwh?.toFixed(2)} kWh`}
+                        </span>
+                      )}
                     </div>
                     <span className={`badge ${bid.status === 'pending' ? 'pending' : bid.status === 'accepted' ? 'executed' : bid.status === 'feasibility_partial' ? 'partial' : 'rejected'}`}>
                       {bid.status?.replace(/_/g, ' ')}

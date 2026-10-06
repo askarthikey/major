@@ -27,7 +27,7 @@ async def get_admin_stats(user: dict = Depends(require_role("admin"))):
                 "_id": None,
                 "total_trades": {"$sum": 1},
                 "total_executed": {
-                    "$sum": {"$cond": [{"$eq": ["$status", "executed"]}, 1, 0]}
+                    "$sum": {"$cond": [{"$in": ["$status", ["executed", "completed"]]}, 1, 0]}
                 },
                 "total_rejected": {
                     "$sum": {"$cond": [{"$eq": ["$status", "rejected"]}, 1, 0]}
@@ -35,15 +35,24 @@ async def get_admin_stats(user: dict = Depends(require_role("admin"))):
                 "total_partial": {
                     "$sum": {"$cond": [{"$eq": ["$status", "partial_fill"]}, 1, 0]}
                 },
+                "total_under_delivered": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "under_delivered"]}, 1, 0]}
+                },
                 "total_energy_kwh": {
                     "$sum": {"$cond": [
-                        {"$in": ["$status", ["executed", "partial_fill"]]},
-                        "$amount_kwh", 0
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
+                        {"$ifNull": ["$actual_delivered_kwh", "$amount_kwh"]}, 0
+                    ]}
+                },
+                "total_scheduled_kwh": {
+                    "$sum": {"$cond": [
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
+                        {"$ifNull": ["$scheduled_kwh", "$amount_kwh"]}, 0
                     ]}
                 },
                 "total_revenue": {
                     "$sum": {"$cond": [
-                        {"$in": ["$status", ["executed", "partial_fill"]]},
+                        {"$in": ["$status", ["executed", "partial_fill", "completed", "under_delivered"]]},
                         "$total_price", 0
                     ]}
                 },
@@ -55,8 +64,9 @@ async def get_admin_stats(user: dict = Depends(require_role("admin"))):
     trade_result = await mongodb.trades.aggregate(trade_pipeline).to_list(length=1)
     trade_stats = trade_result[0] if trade_result else {
         "total_trades": 0, "total_executed": 0, "total_rejected": 0,
-        "total_partial": 0, "total_energy_kwh": 0, "total_revenue": 0,
-        "avg_price": 0,
+        "total_partial": 0, "total_under_delivered": 0,
+        "total_energy_kwh": 0, "total_scheduled_kwh": 0,
+        "total_revenue": 0, "avg_price": 0,
     }
     trade_stats.pop("_id", None)
 

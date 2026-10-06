@@ -32,6 +32,13 @@ class TradeResponse(BaseModel):
     total_price: float
     status: str
     feasibility: Optional[Dict[str, Any]] = None
+    # Delivery layer fields
+    original_amount_kwh: Optional[float] = None
+    scheduled_kwh: Optional[float] = None
+    actual_delivered_kwh: Optional[float] = None
+    delivery: Optional[Dict[str, Any]] = None
+    listing_original_kwh: Optional[float] = None
+    listing_remaining_kwh: Optional[float] = None
 
 
 class GridStateResponse(BaseModel):
