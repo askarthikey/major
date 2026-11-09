@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getMyTrades } from '../../services/api';
-import { formatKWh, formatPrice, timeAgo } from '../../utils/formatters';
+import { timeAgo } from '../../utils/formatters';
+import { PageIntro } from '../../components/ui';
 
 export default function SellerHistory() {
   const [trades, setTrades] = useState([]);
@@ -18,10 +19,13 @@ export default function SellerHistory() {
   }
 
   return (
-    <div className="card">
+    <div className="dashboard-grid">
+      <PageIntro eyebrow="Seller workspace" title="Trade history" description="A record of the energy you have shared with the network." />
+      <div className="card">
       <div className="card-header">
         <span className="card-title">📜 Your Trade History</span>
         <span className="text-xs text-muted">{trades.length} trades</span>
+        </div>
       </div>
 
       {trades.length === 0 ? (

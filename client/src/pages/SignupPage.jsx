@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { Button, Input } from '../components/ui';
 
 // IEEE 13-bus feeder buses that can host a household
 const AVAILABLE_BUSES = [
@@ -50,24 +51,24 @@ export default function SignupPage() {
         {/* Left side — branding */}
         <div className="auth-brand">
           <div className="auth-brand-content">
-            <div className="auth-brand-icon">☀️</div>
+            <div className="auth-brand-icon">✦</div>
             <h1 className="auth-brand-title">Solar P2P</h1>
             <p className="auth-brand-subtitle">
-              Join the microgrid trading network
+              Make your energy count<br />for more than just your own home.
             </p>
             <div className="auth-brand-features">
               <div className="auth-feature">
-                <span className="auth-feature-icon">🏠</span>
-                <span>Represent a house on the grid</span>
-              </div>
+                <span className="auth-feature-icon">01</span>
+                <span>Bring your place into the network</span>
+                </div>
               <div className="auth-feature">
-                <span className="auth-feature-icon">💰</span>
-                <span>Trade solar surplus for revenue</span>
-              </div>
+                <span className="auth-feature-icon">02</span>
+                <span>Turn surplus into shared value</span>
+                </div>
               <div className="auth-feature">
-                <span className="auth-feature-icon">🌱</span>
-                <span>Support clean energy locally</span>
-              </div>
+                <span className="auth-feature-icon">03</span>
+                <span>Keep every exchange grid-safe</span>
+                </div>
             </div>
           </div>
         </div>
@@ -76,57 +77,49 @@ export default function SignupPage() {
         <div className="auth-form-section">
           <form className="auth-form" onSubmit={handleSubmit}>
             <div className="auth-form-header">
-              <h2>Create Account</h2>
-              <p className="text-muted">Register as a buyer or seller</p>
+              <div className="text-xs text-muted uppercase tracking-widest mb-sm">Join the network</div>
+              <h2>Create your account</h2>
+              <p className="text-muted text-sm">Choose how you want to participate.</p>
             </div>
 
             {error && (
               <div className="auth-error">
                 <span>⚠</span>
                 {error}
-              </div>
+                </div>
             )}
 
-            <div className="form-group">
-              <label htmlFor="signup-name" className="form-label">Full Name</label>
-              <input
-                id="signup-name"
-                type="text"
-                className="form-input"
-                placeholder="John Doe"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required
-                minLength={2}
-              />
-            </div>
+            <Input
+              label="Full Name"
+              id="signup-name"
+              type="text"
+              placeholder="John Doe"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              minLength={2}
+            />
 
-            <div className="form-group">
-              <label htmlFor="signup-email" className="form-label">Email</label>
-              <input
-                id="signup-email"
-                type="email"
-                className="form-input"
-                placeholder="you@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            <Input
+              label="Email"
+              id="signup-email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+            />
 
-            <div className="form-group">
-              <label htmlFor="signup-password" className="form-label">Password</label>
-              <input
-                id="signup-password"
-                type="password"
-                className="form-input"
-                placeholder="Min 6 characters"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
+            <Input
+              label="Password"
+              id="signup-password"
+              type="password"
+              placeholder="Min 6 characters"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              minLength={6}
+            />
 
             <div className="form-row">
               <div className="form-group">
@@ -140,7 +133,7 @@ export default function SignupPage() {
                   <option value="buyer">Buyer</option>
                   <option value="seller">Seller</option>
                 </select>
-              </div>
+                </div>
 
               <div className="form-group">
                 <label htmlFor="signup-bus" className="form-label">Grid Bus</label>
@@ -154,12 +147,13 @@ export default function SignupPage() {
                     <option key={bus.id} value={bus.id}>{bus.label}</option>
                   ))}
                 </select>
-              </div>
+                </div>
             </div>
 
-            <button
+            <Button
               type="submit"
-              className="btn btn-primary auth-submit"
+              variant="primary"
+              className="auth-submit"
               disabled={loading}
             >
               {loading ? (
@@ -170,7 +164,7 @@ export default function SignupPage() {
               ) : (
                 'Create Account'
               )}
-            </button>
+            </Button>
 
             <p className="auth-switch">
               Already have an account?{' '}

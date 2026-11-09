@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from './contexts/AuthContext';
 
 // Auth pages
@@ -25,12 +26,14 @@ import AdminLedger from './pages/admin/AdminLedger';
 
 import './App.css';
 
+const queryClient = new QueryClient();
+
 function App() {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="loading-overlay" style={{ minHeight: '100vh' }}>
+      <div className="loading-overlay" style={{ minH: '100vh' }}>
         <div className="spinner"></div>
         <span>Loading Solar P2P...</span>
       </div>
@@ -38,70 +41,72 @@ function App() {
   }
 
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route
-        path="/login"
-        element={user ? <Navigate to={`/${user.role}`} replace /> : <LoginPage />}
-      />
-      <Route
-        path="/signup"
-        element={user ? <Navigate to={`/${user.role}`} replace /> : <SignupPage />}
-      />
+    <QueryClientProvider client={queryClient}>
+      <Routes>
+        {/* Public routes */}
+        <Route
+          path="/login"
+          element={user ? <Navigate to={`/${user.role}`} replace /> : <LoginPage />}
+        />
+        <Route
+          path="/signup"
+          element={user ? <Navigate to={`/${user.role}`} replace /> : <SignupPage />}
+        />
 
-      {/* Seller routes */}
-      <Route
-        path="/seller"
-        element={
-          <ProtectedRoute allowedRoles={['seller']}>
-            <RoleLayout role="seller" />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<SellerHome />} />
-        <Route path="history" element={<SellerHistory />} />
-      </Route>
+        {/* Seller routes */}
+        <Route
+          path="/seller"
+          element={
+            <ProtectedRoute allowedRoles={['seller']}>
+              <RoleLayout role="seller" />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<SellerHome />} />
+          <Route path="history" element={<SellerHistory />} />
+        </Route>
 
-      {/* Buyer routes */}
-      <Route
-        path="/buyer"
-        element={
-          <ProtectedRoute allowedRoles={['buyer']}>
-            <RoleLayout role="buyer" />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<BuyerHome />} />
-        <Route path="history" element={<BuyerHistory />} />
-      </Route>
+        {/* Buyer routes */}
+        <Route
+          path="/buyer"
+          element={
+            <ProtectedRoute allowedRoles={['buyer']}>
+              <RoleLayout role="buyer" />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<BuyerHome />} />
+          <Route path="history" element={<BuyerHistory />} />
+        </Route>
 
-      {/* Admin routes */}
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <RoleLayout role="admin" />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<AdminGrid />} />
-        <Route path="trades" element={<AdminTrades />} />
-        <Route path="stats" element={<AdminStats />} />
-        <Route path="ledger" element={<AdminLedger />} />
-      </Route>
+        {/* Admin routes */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <RoleLayout role="admin" />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<AdminGrid />} />
+          <Route path="trades" element={<AdminTrades />} />
+          <Route path="stats" element={<AdminStats />} />
+          <Route path="ledger" element={<AdminLedger />} />
+        </Route>
 
-      {/* Default redirect */}
-      <Route
-        path="*"
-        element={
-          user ? (
-            <Navigate to={`/${user.role}`} replace />
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      />
-    </Routes>
+        {/* Default redirect */}
+        <Route
+          path="*"
+          element={
+            user ? (
+              <Navigate to={`/${user.role}`} replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+      </Routes>
+    </QueryClientProvider>
   );
 }
 

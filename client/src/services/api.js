@@ -49,11 +49,12 @@ export const getAllTrades = (params = {}) => {
 export const getListings = (statusFilter = 'open') =>
   fetchJSON(`/listings?status_filter=${statusFilter}`);
 export const getMyListings = () => authFetch('/listings/mine');
-export const createListing = (amountKwh, pricePerKwh) =>
+export const createListing = (powerKw, durationHours, pricePerKwh) =>
   authFetch('/listings', {
     method: 'POST',
     body: JSON.stringify({
-      amount_kwh_available: amountKwh,
+      power_kw: powerKw,
+      duration_hours: durationHours,
       asking_price_per_kwh: pricePerKwh,
     }),
   });
@@ -64,14 +65,20 @@ export const updateListing = (listingId, updates) =>
   });
 
 // Bid endpoints
-export const placeBid = (listingId, amountKwh, pricePerKwh) =>
+export const placeBid = (listingId, powerKw, durationHours, pricePerKwh) =>
   authFetch('/bids', {
     method: 'POST',
     body: JSON.stringify({
       listing_id: listingId,
-      requested_amount_kwh: amountKwh,
+      requested_power_kw: powerKw,
+      duration_hours: durationHours,
       offered_price_per_kwh: pricePerKwh,
     }),
+  });
+export const previewBid = (listingId, powerKw, durationHours) =>
+  authFetch('/bids/preview', {
+    method: 'POST',
+    body: JSON.stringify({ listing_id: listingId, power_kw: powerKw, duration_hours: durationHours }),
   });
 export const respondToBid = (bidId, action) =>
   authFetch(`/bids/${bidId}/respond`, {

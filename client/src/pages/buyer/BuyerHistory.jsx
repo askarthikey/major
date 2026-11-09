@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getMyTrades, getMyBids } from '../../services/api';
 import { timeAgo } from '../../utils/formatters';
+import { PageIntro } from '../../components/ui';
 
 export default function BuyerHistory() {
   const [trades, setTrades] = useState([]);
@@ -23,7 +24,9 @@ export default function BuyerHistory() {
   }
 
   return (
-    <div className="card">
+    <div className="dashboard-grid">
+      <PageIntro eyebrow="Buyer workspace" title="Bids & trades" description="Follow your offers from first click to completed exchange." />
+      <div className="card">
       <div className="card-header">
         <span className="card-title">📜 My Bids & Trades</span>
         <div className="tab-group">
@@ -33,6 +36,7 @@ export default function BuyerHistory() {
           <button className={`tab-btn ${tab === 'trades' ? 'active' : ''}`} onClick={() => setTab('trades')}>
             Trades ({trades.length})
           </button>
+          </div>
         </div>
       </div>
 

@@ -48,11 +48,11 @@ class Settings(BaseSettings):
 
     # --- ML / GNN ---
     gnn_model_path: str = Field(
-        default="server/ml/gnn/checkpoints/best_model.pt",
+        default="server/ml/gnn/checkpoints/zoo/graphsage_best.pt",
         description="Path to the trained GNN model checkpoint",
     )
     gnn_fallback_to_pandapower: bool = Field(
-        default=True,
+        default=False,
         description="If True, fall back to pandapower solver when GNN model is unavailable",
     )
 

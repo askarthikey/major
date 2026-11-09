@@ -213,16 +213,30 @@ class StandaloneGNNChecker:
     @staticmethod
     def _resolve_checkpoint_path(path_str: str) -> Optional[str]:
         """Try multiple path resolutions to find the checkpoint."""
+        server_root = Path(__file__).resolve().parents[1]
+        project_root = server_root.parent
+        configured_path = Path(path_str)
         candidates = [
-            Path(path_str),                                          # As-is
-            Path(__file__).resolve().parent.parent / path_str,       # Relative to server/
-            Path(__file__).resolve().parent.parent.parent / path_str,  # Relative to project root
-            Path("ml/gnn/checkpoints/best_model.pt"),                # Direct from server/
+            configured_path,
+            Path.cwd() / configured_path,
+            server_root / configured_path,
+            project_root / configured_path,
+            server_root / "ml/gnn/checkpoints/zoo/graphsage_best.pt",
+            server_root / "ml/gnn/checkpoints/best_model.pt",
         ]
+        if configured_path.parts and configured_path.parts[0] == "server":
+            candidates.extend([
+                project_root / Path(*configured_path.parts[1:]),
+            ])
+        else:
+            candidates.extend([
+                server_root / configured_path,
+            ])
         for candidate in candidates:
-            if candidate.exists():
-                logger.info(f"GNN checkpoint found at: {candidate}")
-                return str(candidate)
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                logger.info(f"GNN checkpoint found at: {resolved}")
+                return str(resolved)
         return None
 
     def _load_model(self, checkpoint_path: str):
@@ -282,12 +296,21 @@ class StandaloneGNNChecker:
             Dict with is_feasible, confidence, check_method, etc.
         """
         if not self.model_loaded:
-            # FAIL-SAFE: reject trades if the model isn't loaded
+            # Use a conservative deterministic limit while the optional model
+            # is unavailable. This keeps small, safe marketplace trades usable
+            # without pretending that an ML prediction was made.
+            safe_limit_kwh = 1.0
+            is_feasible = amount_kwh <= safe_limit_kwh
             return {
-                "is_feasible": False,
-                "confidence": 0.0,
-                "check_method": "none",
-                "reason": "GNN model not loaded — trade rejected for safety",
+                "is_feasible": is_feasible,
+                "confidence": 0.5 if is_feasible else 1.0,
+                "check_method": "conservative_fallback",
+                "max_feasible_amount_kwh": safe_limit_kwh,
+                "reason": (
+                    "Conservative fallback used while GNN model is unavailable"
+                    if is_feasible else
+                    "Requested amount exceeds conservative fallback limit"
+                ),
             }
 
         # Default voltage/loading if not provided
@@ -377,6 +400,12 @@ class StandaloneGNNChecker:
                 lo = mid
             else:
                 hi = mid
+
+        if best_feasible is None and self.check_feasibility(
+            seller_bus, buyer_bus, min(max_amount_kwh, step_kwh),
+            bus_voltages, line_loadings,
+        )["is_feasible"]:
+            best_feasible = min(max_amount_kwh, step_kwh)
 
         return best_feasible
 

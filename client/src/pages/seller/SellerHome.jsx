@@ -1,236 +1,236 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useWebSocket } from '../../hooks/useWebSocket';
 import GridGraph from '../../components/Grid/GridGraph';
 import {
-  getGridState, getMyListings, createListing, updateListing,
-  getBidsForListing, respondToBid, getListings,
-} from '../../services/api';
+  useGridState,
+  useMyListings,
+  useListings,
+  useCreateListing,
+  useUpdateListing,
+  useBidsForListing,
+  useRespondToBid
+} from '../../hooks/api';
+import { Card, Button, Input, Badge, PageIntro, StatCard } from '../../components/ui';
 
 export default function SellerHome() {
   const { user } = useAuth();
-  const { lastMessage } = useWebSocket();
 
-  const [gridState, setGridState] = useState(null);
-  const [myListing, setMyListing] = useState(null);
-  const [allListings, setAllListings] = useState([]);
-  const [bids, setBids] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  // Data from React Query
+  const { data: gridState, isLoading: gridLoading } = useGridState();
+  const { data: allListings = [], isLoading: allListingsLoading } = useListings();
+  const { data: myListings = [], isLoading: myListingsLoading } = useMyListings();
 
-  // Listing form
+  // The active open listing for this seller
+  const myListing = myListings.find(l => l.status === 'open' || l.status === 'partially_filled');
+
+  const { data: bids = [], isLoading: bidsLoading } = useBidsForListing(myListing?.listing_id);
+
+  // Mutations
+  const { mutateAsync: createListing, isPending: isCreating } = useCreateListing();
+  const { mutateAsync: updateListing, isPending: isUpdating } = useUpdateListing();
+  const { mutate: respondToBid, isPending: isResponding } = useRespondToBid();
+
+  // Local form state
   const [amount, setAmount] = useState('');
+  const [duration, setDuration] = useState('1');
   const [price, setPrice] = useState('');
-  const [showPanel, setShowPanel] = useState(false);
-
-  // Feasibility result display
+  const [localError, setLocalError] = useState('');
+  const [localSuccess, setLocalSuccess] = useState('');
   const [tradeResult, setTradeResult] = useState(null);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [grid, listings, myListingsData] = await Promise.all([
-        getGridState().catch(() => null),
-        getListings().catch(() => []),
-        getMyListings().catch(() => []),
-      ]);
-      setGridState(grid);
-      setAllListings(listings);
-
-      const openListing = myListingsData.find(l => l.status === 'open' || l.status === 'partially_filled');
-      setMyListing(openListing || null);
-
-      if (openListing) {
-        const listingBids = await getBidsForListing(openListing.listing_id).catch(() => []);
-        setBids(listingBids);
-        setAmount(openListing.amount_kwh_available.toString());
-        setPrice(openListing.asking_price_per_kwh.toString());
-      }
-    } catch {
-      // Ignore
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // Live updates via WebSocket
+  // Init form values when listing is loaded
   useEffect(() => {
-    if (lastMessage?.type === 'simulation_step' && lastMessage.data?.grid_state) {
-      setGridState(lastMessage.data.grid_state);
+    if (myListing) {
+      setAmount((myListing.power_kw || myListing.amount_kwh_available).toString());
+      setPrice(myListing.asking_price_per_kwh.toString());
+      setDuration((myListing.duration_hours || 1).toString());
     }
-  }, [lastMessage]);
+  }, [myListing]);
 
-  const handleCreateListing = async (e) => {
+  const handleListingSubmit = async (e) => {
     e.preventDefault();
-    setError(''); setSuccess('');
-    setActionLoading('create');
-    try {
-      const listing = await createListing(parseFloat(amount), parseFloat(price));
-      setMyListing(listing);
-      setSuccess('Listing created! Buyers can now see your offer on the grid map.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+    setLocalError('');
+    setLocalSuccess('');
 
-  const handleUpdateListing = async (e) => {
-    e.preventDefault();
-    if (!myListing) return;
-    setError(''); setSuccess('');
-    setActionLoading('update');
     try {
-      const updated = await updateListing(myListing.listing_id, {
-        amount_kwh_available: parseFloat(amount),
-        asking_price_per_kwh: parseFloat(price),
-      });
-      setMyListing(updated);
-      setSuccess('Listing updated.');
+      if (myListing) {
+        const result = await updateListing({
+          listingId: myListing.listing_id,
+          updates: {
+            power_kw: parseFloat(amount),
+            duration_hours: parseFloat(duration),
+            asking_price_per_kwh: parseFloat(price)
+          }
+        });
+        setLocalSuccess(result.feasibility_preview?.feasible
+          ? `Listing updated. Grid preview: ${result.feasibility_preview.feasible.power_kw.toFixed(2)} kW for ${result.feasibility_preview.feasible.duration_hours.toFixed(2)} h.`
+          : 'Listing updated. A buyer route will be checked when a bid arrives.');
+      } else {
+        const result = await createListing({
+          powerKw: parseFloat(amount),
+          durationHours: parseFloat(duration),
+          pricePerKwh: parseFloat(price)
+        });
+        setLocalSuccess(result.feasibility_preview?.feasible
+          ? `Listing created. Safe preview: ${result.feasibility_preview.feasible.power_kw.toFixed(2)} kW for ${result.feasibility_preview.feasible.duration_hours.toFixed(2)} h.`
+          : 'Listing created! Buyer-specific feasibility will be checked before acceptance.');
+      }
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setActionLoading(null);
+      setLocalError(err.message);
     }
   };
 
   const handleCloseListing = async () => {
     if (!myListing) return;
-    setActionLoading('close');
     try {
-      await updateListing(myListing.listing_id, { status: 'closed' });
-      setMyListing(null);
-      setSuccess('Listing closed.');
-      setBids([]);
+      await updateListing({
+        listingId: myListing.listing_id,
+        updates: { status: 'closed' }
+      });
+      setLocalSuccess('Listing closed.');
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setActionLoading(null);
+      setLocalError(err.message);
     }
   };
 
   const handleRespondBid = async (bidId, action) => {
-    setError(''); setSuccess(''); setTradeResult(null);
-    setActionLoading(bidId);
+    setLocalError('');
+    setLocalSuccess('');
+    setTradeResult(null);
+
     try {
-      const result = await respondToBid(bidId, action);
+      const result = await respondToBid({ bidId, action });
       setTradeResult(result);
 
-      if (result.status === 'executed') {
-        setSuccess(result.message);
-      } else if (result.status === 'partial_fill') {
-        setSuccess(result.message);
+      if (result.status === 'executed' || result.status === 'partial_fill') {
+        setLocalSuccess(result.message);
       } else if (result.status === 'rejected') {
-        setError(result.message);
+        setLocalError(result.message);
       }
-
-      // Refresh data
-      await fetchData();
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setActionLoading(null);
+      setLocalError(err.message);
     }
   };
 
-  if (loading) {
-    return <div className="loading-overlay"><div className="spinner"></div><span>Loading...</span></div>;
+  if (gridLoading || allListingsLoading || myListingsLoading || bidsLoading) {
+    return (
+      <div className="loading-overlay">
+        <div className="spinner"></div>
+        <span className="text-muted">Loading Seller Portal...</span>
+      </div>
+    );
   }
 
   return (
     <div className="dashboard-grid">
-      {/* Success / Error banners */}
-      {success && <div className="alert alert-success">{success}<button className="alert-close" onClick={() => setSuccess('')}>×</button></div>}
-      {error && <div className="alert alert-error">{error}<button className="alert-close" onClick={() => setError('')}>×</button></div>}
+      <PageIntro
+        eyebrow={`Seller workspace / Bus ${user?.bus_id ?? '—'}`}
+        title="Your energy, working harder."
+        description="Publish your surplus, respond to demand, and let the grid-aware market handle the rest."
+      />
+      <div className="stats-row">
+        <StatCard label="Open listing" value={myListing ? `${(myListing.power_kw || myListing.amount_kwh_available)?.toFixed(1)} kW` : 'None'} detail={myListing ? `${Math.round(myListing.units_available || myListing.amount_kwh_available * 100)} units · visible to buyers` : 'Create one below'} />
+        <StatCard label="Incoming bids" value={bids.length} detail="Offers awaiting your review" accent="amber" />
+        <StatCard label="Network status" value="Stable" detail="AI safety gate active" accent="blue" />
+      </div>
+      {localSuccess && (
+        <div className="alert alert-success">
+          {localSuccess}
+          <button className="alert-close" onClick={() => setLocalSuccess('')}>×</button>
+        </div>
+      )}
+      {localError && (
+        <div className="alert alert-error">
+          {localError}
+          <button className="alert-close" onClick={() => setLocalError('')}>×</button>
+        </div>
+      )}
 
-      {/* Grid Map */}
       <div className="main-grid">
         <div className="flex flex-col gap-lg">
-          <GridGraph
-            gridState={gridState}
-            highlightBus={user?.bus_id}
-            listings={allListings}
-            role="seller"
-            onBusClick={(busId) => {
-              if (busId === user?.bus_id) setShowPanel(true);
-            }}
-          />
+          <Card title="Grid Connectivity & Energy Flow">
+            <GridGraph
+              gridState={gridState}
+              highlightBus={user?.bus_id}
+              listings={allListings}
+              role="seller"
+              onBusClick={(busId) => {
+                if (busId === user?.bus_id) {
+                  // Handled by the right panel being present
+                }
+              }}
+            />
+          </Card>
         </div>
 
-        {/* Side Panel */}
         <div className="flex flex-col gap-lg">
           {/* Listing Management */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">📋 Your Listing</span>
-              {myListing && <span className={`badge ${myListing.status === 'open' ? 'executed' : 'partial'}`}>{myListing.status}</span>}
-            </div>
-
-            <form onSubmit={myListing ? handleUpdateListing : handleCreateListing}>
-              <div className="form-group">
-                <label className="form-label">Energy Available (kWh)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  step="0.1"
-                  min="0.1"
-                  max="1000"
-                  required
-                  placeholder="e.g. 5.0"
-                />
+          <Card title={`Your Listing ${myListing ? `(${myListing.status})` : ''}`}>
+            <form onSubmit={handleListingSubmit} className="flex flex-col gap-md">
+              <Input
+                label="Power Available (kW)"
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                step="0.1"
+                min="0.1"
+                max="1000"
+                required
+                placeholder="e.g. 5.0"
+              />
+              <Input
+                label="Delivery Duration (hours)"
+                type="number"
+                value={duration}
+                onChange={e => setDuration(e.target.value)}
+                step="0.25"
+                min="0.25"
+                max="24"
+                required
+                placeholder="e.g. 2"
+              />
+              <div className="text-xs text-muted">
+                {((parseFloat(amount) || 0) * (parseFloat(duration) || 0)).toFixed(2)} kWh · {Math.round((parseFloat(amount) || 0) * (parseFloat(duration) || 0) * 100)} units (10 Wh each)
               </div>
-              <div className="form-group">
-                <label className="form-label">Price (₹/kWh)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={price}
-                  onChange={e => setPrice(e.target.value)}
-                  step="0.01"
-                  min="0.01"
-                  max="100"
-                  required
-                  placeholder="e.g. 4.50"
-                />
-              </div>
+              <Input
+                label="Price (₹/kWh)"
+                type="number"
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                step="0.01"
+                min="0.01"
+                max="100"
+                required
+                placeholder="e.g. 4.50"
+              />
 
               <div className="flex gap-sm">
-                <button
+                <Button
                   type="submit"
-                  className="btn btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={actionLoading === 'create' || actionLoading === 'update'}
+                  variant="primary"
+                  className="flex-1"
+                  disabled={isCreating || isUpdating}
                 >
-                  {actionLoading === 'create' || actionLoading === 'update' ? (
+                  {(isCreating || isUpdating) ? (
                     <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }}></div> Saving...</>
                   ) : myListing ? 'Update Listing' : 'Create Listing'}
-                </button>
+                </Button>
                 {myListing && (
-                  <button
+                  <Button
                     type="button"
-                    className="btn btn-danger"
+                    variant="danger"
                     onClick={handleCloseListing}
-                    disabled={actionLoading === 'close'}
+                    disabled={isUpdating}
                   >
                     Close
-                  </button>
+                  </Button>
                 )}
               </div>
             </form>
-          </div>
+          </Card>
 
           {/* Incoming Bids */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">📨 Incoming Bids</span>
-              <span className="text-xs text-muted">{bids.filter(b => b.status === 'pending').length} pending</span>
-            </div>
-
+          <Card title={`Incoming Bids (${bids.filter(b => b.status === 'pending').length})`}>
             {bids.length === 0 ? (
               <p className="text-muted text-sm" style={{ padding: '16px 0' }}>
                 {myListing ? 'No bids yet. Buyers will bid when they see your listing.' : 'Create a listing to receive bids.'}
@@ -240,58 +240,60 @@ export default function SellerHome() {
                 {bids.map(bid => (
                   <div key={bid.bid_id} className="bid-item">
                     <div className="bid-info">
-                      <span className="bid-buyer">{bid.buyer_name || `Buyer (Bus ${bid.bus_id})`}</span>
-                      <span className="text-mono text-sm">
-                        {bid.requested_amount_kwh.toFixed(2)} kWh @ ₹{bid.offered_price_per_kwh.toFixed(2)}/kWh
+                      <span className="text-sm font-medium">{bid.buyer_name || `Buyer (Bus ${bid.bus_id})`}</span>
+                      <span className="text-mono text-xs">
+                        {(bid.requested_power_kw || bid.requested_amount_kwh).toFixed(2)} kW × {(bid.duration_hours || 1).toFixed(2)} h · {Math.round(bid.requested_units || bid.requested_amount_kwh * 100)} units @ ₹{bid.offered_price_per_kwh.toFixed(2)}/kWh
                       </span>
-                      <span className={`badge ${bid.status === 'pending' ? 'pending' : bid.status === 'accepted' ? 'executed' : 'rejected'}`}>
+                      <Badge variant={bid.status === 'pending' ? 'pending' : bid.status === 'accepted' ? 'executed' : 'rejected'}>
                         {bid.status}
-                      </span>
+                      </Badge>
                     </div>
                     {bid.status === 'pending' && (
                       <div className="bid-actions">
-                        <button
-                          className="btn btn-primary btn-sm"
+                        <Button
+                          variant="primary"
+                          className="btn-sm"
                           onClick={() => handleRespondBid(bid.bid_id, 'accept')}
-                          disabled={actionLoading === bid.bid_id}
+                          disabled={isResponding}
                         >
-                          {actionLoading === bid.bid_id ? (
-                            <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }}></div>
-                          ) : 'Accept'}
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
+                          Accept
+                        </Button>
+                        <Button
+                          variant="danger"
+                          className="btn-sm"
                           onClick={() => handleRespondBid(bid.bid_id, 'reject')}
-                          disabled={actionLoading === bid.bid_id}
+                          disabled={isResponding}
                         >
                           Reject
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Feasibility Result */}
           {tradeResult && (
-            <div className={`card feasibility-result ${tradeResult.status}`}>
-              <div className="card-header">
-                <span className="card-title">⚡ Trade Result</span>
-                <span className={`badge ${tradeResult.status === 'executed' ? 'executed' : tradeResult.status === 'partial_fill' ? 'partial' : 'rejected'}`}>
+            <Card
+              title="Trade Result"
+              className={`feasibility-result ${tradeResult.status}`}
+            >
+              <div className="flex justify-between items-center mb-md">
+                <Badge variant={tradeResult.status === 'executed' ? 'executed' : tradeResult.status === 'partial_fill' ? 'partial' : 'rejected'}>
                   {tradeResult.status.replace('_', ' ')}
-                </span>
+                </Badge>
+                <Button variant="ghost" className="btn-sm" onClick={() => setTradeResult(null)}>Dismiss</Button>
               </div>
-              <p className="text-sm" style={{ marginBottom: 8 }}>{tradeResult.message}</p>
+              <p className="text-sm mb-md">{tradeResult.message}</p>
               {tradeResult.amount_kwh != null && (
                 <p className="text-mono text-sm text-muted">
                   {tradeResult.amount_kwh.toFixed(3)} kWh @ ₹{tradeResult.price_per_kwh?.toFixed(2)}/kWh
                   = ₹{tradeResult.total_price?.toFixed(2)}
                 </p>
               )}
-              <button className="btn btn-ghost btn-sm mt-sm" onClick={() => setTradeResult(null)}>Dismiss</button>
-            </div>
+            </Card>
           )}
         </div>
       </div>

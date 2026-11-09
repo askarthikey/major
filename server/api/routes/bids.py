@@ -20,6 +20,7 @@ from typing import Optional
 from ledger.database import mongodb
 from ledger.hash_chain import append_trade
 from api.auth import get_current_user, require_role
+from market.energy_contract import EnergyContract, contract_from_kwh
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,20 @@ router = APIRouter(prefix="/bids", tags=["Bids"])
 
 class PlaceBidRequest(BaseModel):
     listing_id: str
-    requested_amount_kwh: float = Field(gt=0, le=1000)
+    requested_amount_kwh: Optional[float] = Field(default=None, gt=0, le=1000)
+    requested_power_kw: Optional[float] = Field(default=None, gt=0, le=1000)
+    duration_hours: Optional[float] = Field(default=None, gt=0, le=24)
     offered_price_per_kwh: float = Field(gt=0, le=100)
 
 
 class RespondBidRequest(BaseModel):
     action: str = Field(pattern="^(accept|reject)$")
+
+
+class FeasibilityPreviewRequest(BaseModel):
+    listing_id: str
+    power_kw: float = Field(gt=0, le=1000)
+    duration_hours: float = Field(gt=0, le=24)
 
 
 # --- Routes ---
@@ -54,8 +63,17 @@ async def place_bid(
     if listing["status"] != "open":
         raise HTTPException(status_code=400, detail="This listing is no longer open")
 
+    if request.requested_power_kw is not None or request.duration_hours is not None:
+        if request.requested_power_kw is None or request.duration_hours is None:
+            raise HTTPException(status_code=422, detail="Power and duration must be provided together")
+        contract = EnergyContract(request.requested_power_kw, request.duration_hours)
+    elif request.requested_amount_kwh is not None:
+        contract = contract_from_kwh(request.requested_amount_kwh, listing.get("duration_hours", 1.0))
+    else:
+        raise HTTPException(status_code=422, detail="Provide requested power and duration")
+
     # Validate amount
-    if request.requested_amount_kwh > listing["amount_kwh_available"]:
+    if contract.energy_kwh > listing["amount_kwh_available"]:
         raise HTTPException(
             status_code=400,
             detail=f"Requested amount exceeds available ({listing['amount_kwh_available']} kWh)",
@@ -84,7 +102,11 @@ async def place_bid(
         "buyer_user_id": user["id"],
         "buyer_name": user["name"],
         "bus_id": user["bus_id"],
-        "requested_amount_kwh": request.requested_amount_kwh,
+        "requested_amount_kwh": contract.energy_kwh,
+        "requested_power_kw": contract.power_kw,
+        "duration_hours": contract.duration_hours,
+        "requested_units": contract.units,
+        "unit_size_wh": 10,
         "offered_price_per_kwh": request.offered_price_per_kwh,
         "status": "pending",
         "created_at": datetime.now(timezone.utc),
@@ -95,6 +117,47 @@ async def place_bid(
 
     logger.info(f"Bid placed: {bid_id} by {user['name']} on listing {request.listing_id}")
     return bid_doc
+
+
+@router.post("/preview")
+async def preview_bid(
+    request: FeasibilityPreviewRequest,
+    user: dict = Depends(require_role("buyer")),
+):
+    """Return a safe trade recommendation without reserving or mutating capacity."""
+    listing = await mongodb.db["listings"].find_one({"listing_id": request.listing_id})
+    if not listing or listing["status"] not in ("open", "partially_filled"):
+        raise HTTPException(status_code=404, detail="Open listing not found")
+
+    contract = EnergyContract(request.power_kw, request.duration_hours)
+    if contract.energy_kwh > listing["amount_kwh_available"]:
+        raise HTTPException(status_code=400, detail="Requested energy exceeds listing availability")
+
+    from market.standalone_checker import get_gnn_checker
+    checker = get_gnn_checker()
+    result = checker.check_feasibility(
+        seller_bus=listing["bus_id"],
+        buyer_bus=user["bus_id"],
+        amount_kwh=contract.energy_kwh,
+    )
+    max_kwh = contract.energy_kwh if result["is_feasible"] else checker.find_max_feasible_amount(
+        seller_bus=listing["bus_id"],
+        buyer_bus=user["bus_id"],
+        max_amount_kwh=contract.energy_kwh,
+    )
+    max_kwh = max_kwh or 0
+    safe_contract = contract_from_kwh(max_kwh, contract.duration_hours) if max_kwh > 0 else None
+    return {
+        "is_feasible": bool(result["is_feasible"]),
+        "requested": contract.as_dict(),
+        "feasible": safe_contract.as_dict() if safe_contract else None,
+        "confidence": result.get("confidence", 0),
+        "check_method": result.get("check_method", "unknown"),
+        "violated_buses": result.get("violated_buses", []),
+        "violated_lines": result.get("violated_lines", []),
+        "reason": result.get("reason"),
+        "capacity_reserved": False,
+    }
 
 
 @router.post("/{bid_id}/respond")
@@ -158,6 +221,10 @@ async def respond_to_bid(
     trade_id = str(uuid.uuid4())[:12]
     agreed_amount = bid["requested_amount_kwh"]
     agreed_price = bid["offered_price_per_kwh"]
+    requested_contract = contract_from_kwh(
+        agreed_amount,
+        bid.get("duration_hours", listing.get("duration_hours", 1.0)),
+    )
 
     # Run GNN feasibility check
     from market.standalone_checker import get_gnn_checker
@@ -238,6 +305,9 @@ async def respond_to_bid(
             {"listing_id": listing["listing_id"]},
             {"$set": {
                 "amount_kwh_available": max(0, remaining),
+                "power_kw": round(max(0, remaining) / requested_contract.duration_hours, 6),
+                "duration_hours": requested_contract.duration_hours,
+                "units_available": round(max(0, remaining) / 0.01),
                 "status": listing_status,
                 "updated_at": datetime.now(timezone.utc),
             }},
@@ -254,6 +324,9 @@ async def respond_to_bid(
         "buyer_household_id": f"user_{bid['buyer_user_id'][:8]}",
         "seller_household_id": f"user_{user['id'][:8]}",
         "amount_kwh": final_amount,
+        "power_kw": round(final_amount / requested_contract.duration_hours, 6),
+        "duration_hours": requested_contract.duration_hours,
+        "units": round(final_amount / 0.01),
         "price_per_kwh": agreed_price,
         "total_price": round(final_amount * agreed_price, 4),
         "original_amount_kwh": agreed_amount if final_status == "partial_fill" else None,

@@ -78,6 +78,7 @@ export default function GridGraph({ gridState, highlightBus, listings = [], role
       source: nodes.find(n => n.id === e.source),
       target: nodes.find(n => n.id === e.target),
     }));
+    const edgePath = d => `M ${d.source.x} ${d.source.y} L ${d.target.x} ${d.target.y}`;
 
     // Glow filter
     const defs = svg.append('defs');
@@ -94,15 +95,13 @@ export default function GridGraph({ gridState, highlightBus, listings = [], role
     feMerge2.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Draw lines
+    // Draw feeder paths with an animated dashed overlay for the default current.
+    svg.selectAll('.grid-line').remove();
     svg.selectAll('.grid-line')
       .data(links)
-      .join('line')
+      .join('path')
       .attr('class', 'grid-line')
-      .attr('x1', d => d.source.x)
-      .attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x)
-      .attr('y2', d => d.target.y)
+      .attr('d', edgePath)
       .attr('stroke', d => {
         const loading = lineLoadings[d.id] || 0;
         return getLoadingColor(loading);
@@ -113,6 +112,48 @@ export default function GridGraph({ gridState, highlightBus, listings = [], role
       })
       .attr('stroke-opacity', 0.7)
       .style('filter', d => lineViolations.has(d.id) ? 'url(#glow)' : 'none');
+
+    const flowPaths = svg.selectAll('.current-flow')
+      .data(links)
+      .join('path')
+      .attr('class', 'current-flow')
+      .attr('d', edgePath)
+      .attr('fill', 'none')
+      .attr('stroke', 'var(--accent-blue)')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '3 9')
+      .attr('stroke-linecap', 'round')
+      .attr('opacity', 0.65);
+
+    // Bright moving particles make the default feeder direction visible without
+    // hiding the congestion color underneath.
+    svg.selectAll('.flow-particle')
+      .data(links.flatMap(link => [link, link]))
+      .join('circle')
+      .attr('class', 'flow-particle')
+      .attr('r', 2.5)
+      .attr('fill', 'var(--accent-primary)')
+      .attr('opacity', 0.95)
+      .each(function (d, index) {
+        const path = flowPaths.filter(link => link.id === d.id).node();
+        if (!path) return;
+        const particle = d3.select(this);
+        const start = index % 2 === 0 ? 0 : 0.5;
+        const move = () => {
+          particle
+            .attr('transform', `translate(${path.getPointAtLength(start * path.getTotalLength()).x},${path.getPointAtLength(start * path.getTotalLength()).y})`)
+            .transition()
+            .duration(2400)
+            .ease(d3.easeLinear)
+            .attrTween('transform', () => t => {
+              const progress = start + (1 - start) * t;
+              const point = path.getPointAtLength(progress * path.getTotalLength());
+              return `translate(${point.x},${point.y})`;
+            })
+            .on('end', move);
+        };
+        move();
+      });
 
     // Draw line loading labels
     svg.selectAll('.line-label')

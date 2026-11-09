@@ -1,27 +1,45 @@
-export default function Header({ isConnected, simulationTime, isRunning }) {
+import { useState } from 'react';
+import { Badge } from '../../components/ui';
+
+export default function Header({ isConnected, simulationTime, isRunning, roleTitle }) {
+  const [showAlerts, setShowAlerts] = useState(false);
+
   return (
     <header className="app-header">
       <div className="flex items-center gap-md">
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-          P2P Trading Dashboard
-        </h2>
+        <div>
+          <div className="text-xs text-muted uppercase tracking-widest">{roleTitle || 'Solar P2P'} / live network</div>
+          <h2 className="text-sm" style={{ color: 'var(--text-primary)' }}>Grid intelligence, in motion</h2>
+        </div>
         {simulationTime && (
-          <span className="badge pending" style={{ fontSize: '0.8rem' }}>
-            🕐 {simulationTime}
-          </span>
+          <Badge variant="pending" className="text-xs">
+            {simulationTime}
+          </Badge>
         )}
       </div>
 
       <div className="flex items-center gap-md">
+        <div className="header-actions">
+          <button className="icon-button" aria-label="View notifications" onClick={() => setShowAlerts(!showAlerts)}>
+            ◌<span className="notification-dot" />
+          </button>
+          {showAlerts && (
+            <div className="notification-popover">
+              <div className="eyebrow">Notifications</div>
+              <strong>Everything is operating normally.</strong>
+              <span>No new grid events.</span>
+            </div>
+          )}
+        </div>
         {isRunning && (
-          <span className="badge executed">
-            <div className="pulse-dot" style={{ width: 6, height: 6 }}></div>
-            LIVE
-          </span>
+          <Badge variant="executed" className="flex items-center gap-xs">
+            <div className="pulse-dot"></div>
+            LIVE FEED
+          </Badge>
         )}
-        <span className={`badge ${isConnected ? 'online' : 'offline'}`}>
-          {isConnected ? '● Connected' : '○ Disconnected'}
-        </span>
+        <Badge variant={isConnected ? 'online' : 'offline'}>
+          {isConnected ? 'Connected' : 'Disconnected'}
+        </Badge>
       </div>
     </header>
   );
