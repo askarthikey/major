@@ -15,16 +15,16 @@ DATA_DIR = Path(__file__).parent
 
 LOCATIONS = {
     "austin": {
-        "data": DATA_DIR / "15_minute_residential_data" / "austin" / "15minute_data_austin.csv",
-        "meta": DATA_DIR / "15_minute_residential_data" / "austin" / "metadata.csv",
+        "data": DATA_DIR / "15_minute_residential_data" / "15minute_data_austin" / "15minute_data_austin.csv",
+        "meta": DATA_DIR / "15_minute_residential_data" / "15minute_data_austin" / "metadata.csv",
     },
     "california": {
-        "data": DATA_DIR / "15_minute_residential_data" / "california" / "15minute_data_california.csv",
-        "meta": DATA_DIR / "15_minute_residential_data" / "california" / "metadata.csv",
+        "data": DATA_DIR / "15_minute_residential_data" / "15minute_data_california" / "15minute_data_california.csv",
+        "meta": DATA_DIR / "15_minute_residential_data" / "15minute_data_california" / "metadata.csv",
     },
     "newyork": {
-        "data": DATA_DIR / "15_minute_residential_data" / "newyork" / "15minute_data_newyork.csv",
-        "meta": DATA_DIR / "15_minute_residential_data" / "newyork" / "metadata.csv",
+        "data": DATA_DIR / "15_minute_residential_data" / "15minute_data_newyork" / "15minute_data_newyork.csv",
+        "meta": DATA_DIR / "15_minute_residential_data" / "15minute_data_newyork" / "metadata.csv",
     },
 }
 

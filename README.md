@@ -53,7 +53,7 @@ solar-p2p-trading/
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.11.x (Recommended for stability)
 - Node.js 18+
 - MongoDB Atlas account (free tier works)
 

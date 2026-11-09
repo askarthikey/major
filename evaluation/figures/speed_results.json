@@ -1,29 +1,6 @@
 {
-  "gnn_stats": {
-    "mean_ms": 2.8742,
-    "median_ms": 2.0811,
-    "std_ms": 1.5032,
-    "min_ms": 1.0746,
-    "max_ms": 6.7634,
-    "p95_ms": 5.0106,
-    "p99_ms": 5.6178,
-    "total_ms": 1437.12,
-    "num_trades": 500
-  },
-  "pandapower_stats": {
-    "mean_ms": 56.8152,
-    "median_ms": 55.908,
-    "std_ms": 5.5927,
-    "min_ms": 47.1892,
-    "max_ms": 101.9691,
-    "p95_ms": 64.9856,
-    "p99_ms": 80.5123,
-    "total_ms": 28407.59,
-    "num_trades": 500
-  },
-  "speedup_mean": 19.8,
-  "speedup_median": 26.9,
-  "num_trades": 500,
-  "warmup_trades": 20,
-  "device": "cpu"
+  "gcn": 0.00020842680908704587,
+  "graphsage": 0.00013741878836367612,
+  "gat": 0.00024517936885636737,
+  "grgn": 0.0002153373100388218
 }

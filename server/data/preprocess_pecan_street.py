@@ -46,9 +46,9 @@ SELECTED_HOUSEHOLDS = [
 
 # Map location name -> raw CSV path
 LOCATION_FILES = {
-    "austin": DATA_DIR / "15_minute_residential_data" / "austin" / "15minute_data_austin.csv",
-    "california": DATA_DIR / "15_minute_residential_data" / "california" / "15minute_data_california.csv",
-    "newyork": DATA_DIR / "15_minute_residential_data" / "newyork" / "15minute_data_newyork.csv",
+    "austin": DATA_DIR / "15_minute_residential_data" / "15minute_data_austin" / "15minute_data_austin.csv",
+    "california": DATA_DIR / "15_minute_residential_data" / "15minute_data_california" / "15minute_data_california.csv",
+    "newyork": DATA_DIR / "15_minute_residential_data" / "15minute_data_newyork" / "15minute_data_newyork.csv",
 }
 
 

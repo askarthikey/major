@@ -16,10 +16,11 @@ needs the physics-aware gate to prevent grid violations.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from heapq import heappush, heappop
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class Order:
     is_buy: bool          # True = bid (buyer), False = ask (seller)
     quantity_kwh: float   # Energy quantity
     price_per_kwh: float  # Price limit (max for buyer, min for seller)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     remaining_kwh: float = 0.0
 
     def __post_init__(self):
@@ -51,7 +52,7 @@ class MatchedTrade:
     clearing_price: float   # Midpoint of bid and ask
     buyer_bus: int
     seller_bus: int
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DoubleAuctionEngine:
@@ -143,10 +144,10 @@ class DoubleAuctionEngine:
         seller_order.remaining_kwh -= trade_quantity
 
         # Re-insert partially filled orders
-        if buyer_order.remaining_kwh > 0.01:  # Tolerance for floating point
+        if not math.isclose(buyer_order.remaining_kwh, 0, abs_tol=0.01):
             heappush(self.buy_orders, (-buyer_order.price_per_kwh, buyer_order.order_id, buyer_order))
 
-        if seller_order.remaining_kwh > 0.01:
+        if not math.isclose(seller_order.remaining_kwh, 0, abs_tol=0.01):
             heappush(self.sell_orders, (seller_order.price_per_kwh, seller_order.order_id, seller_order))
 
         # Create matched trade
